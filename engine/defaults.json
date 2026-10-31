@@ -1,0 +1,23 @@
+{
+  "profile": "auto",
+  "threads": null,
+  "memory_gb": null,
+  "batch_records": 10000,
+  "batch_bytes_mb": 16,
+  "max_record_mb": 1,
+  "min_free_gb": 2,
+  "spill_gb": null,
+  "failure_threshold": 25,
+  "failure_window_minutes": 5,
+  "reported_rename_threshold": 200,
+  "max_incident_steps": 200,
+  "ai_provider": "none",
+  "ai_model": "",
+  "ai_max_reviews": 20,
+  "ai_max_input_chars": 12000,
+  "ai_max_output_tokens": 1200,
+  "ai_timeout_seconds": 30,
+  "indicator_ips": [],
+  "indicator_domains": [],
+  "demo_indicators": false
+}

@@ -1,0 +1,78 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "contract_version": {
+      "const": "1.0",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "job_id": {
+      "title": "Job Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "running",
+        "completed",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "phase": {
+      "title": "Phase",
+      "type": "string"
+    },
+    "processed_bytes": {
+      "minimum": 0,
+      "title": "Processed Bytes",
+      "type": "integer"
+    },
+    "total_bytes": {
+      "minimum": 0,
+      "title": "Total Bytes",
+      "type": "integer"
+    },
+    "records_read": {
+      "minimum": 0,
+      "title": "Records Read",
+      "type": "integer"
+    },
+    "records_parsed": {
+      "minimum": 0,
+      "title": "Records Parsed",
+      "type": "integer"
+    },
+    "malformed_records": {
+      "minimum": 0,
+      "title": "Malformed Records",
+      "type": "integer"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Error"
+    }
+  },
+  "required": [
+    "contract_version",
+    "job_id",
+    "status",
+    "phase",
+    "processed_bytes",
+    "total_bytes",
+    "records_read",
+    "records_parsed",
+    "malformed_records",
+    "error"
+  ],
+  "title": "ProgressContract",
+  "type": "object"
+}

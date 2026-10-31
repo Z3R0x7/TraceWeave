@@ -1,0 +1,11 @@
+.deps
+.git
+.env
+.env.*
+config*.local.json
+runs
+work
+data
+tests
+__pycache__
+.pytest_cache
