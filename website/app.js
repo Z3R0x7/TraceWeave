@@ -1,5 +1,5 @@
 'use strict';
-let bootstrap,current,currentReport='',selection=0;
+let bootstrap,current,currentReport='',selection=0,analysisWatch=0;
 const $=id=>document.getElementById(id);
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 async function api(path,options){const r=await fetch(path,options);const data=await r.json();if(!r.ok)throw Error(data.error||'Request failed');return data;}
@@ -20,6 +20,36 @@ $('template-report').onclick=()=>report('template');$('ai-report').onclick=()=>r
 async function refresh(){selection++;current=null;currentReport='';bootstrap=await api('/api/bootstrap');$('ai-policy').textContent=bootstrap.ai_policy;$('folder-path').value=bootstrap.dataset.folder;const d=bootstrap.dataset;const c=bootstrap.summary.counts||{};const exported=bootstrap.summary.exported_counts||{};$('dataset-banner').textContent=`${d.synthetic?'SYNTHETIC FIXTURE':'IMPORTED OUTPUT'}${d.partial?' · PARTIAL':''}${d.uncorrelated?' · UNCORRELATED FINDING PREVIEWS':''} · ${d.folder}`;$('timestamp-warning').textContent=`Dataset timestamp conflicts: ${d.timestamp_conflicts}. Presentation order does not prove causality. See the source evidence before drawing timeline conclusions.`;const list=await api('/api/incidents');$('totals').textContent=`${list.length} displayed / ${d.loaded_candidates} loaded ${d.uncorrelated?'finding previews':'candidates'} · ${exported.rule_findings??c.findings??'unknown'} rule findings in summary · ${exported.evidence_records??c.normalized??'unknown'} source records in summary${d.simulated_ai?' · AI examples simulated':''}`;
  const render=()=>{$('incident-list').replaceChildren();const q=$('incident-filter').value.toLowerCase();for(const i of list.filter(i=>(i.incident_id+' '+i.title).toLowerCase().includes(q))){const b=el('button',undefined,'candidate');b.dataset.id=i.incident_id;b.append(el('strong',`${i.incident_id} · ${i.risk.score}/100`),el('span',i.title),el('span',`${i.raw_count_lower_bound?'≥ ':''}${i.raw_alert_count} raw records → ${i.rule_finding_count} findings`));b.onclick=()=>choose(i.incident_id);$('incident-list').append(b);}};render();$('incident-filter').oninput=render;$('ai-consent').checked=false;$('ai-report').disabled=true;$('download-report').disabled=true;$('report-text').textContent='Generate a report for the selected input.';$('metrics').replaceChildren();$('timeline').replaceChildren();$('attack-graph').replaceChildren();$('reach-graph').replaceChildren();$('reach-results').replaceChildren();$('evidence-inspector').replaceChildren();showTab('path');if(list.length)await choose(list[0].incident_id);else{$('selected-title').textContent='No candidate incidents in this export';status('Input loaded. No incident output is available; an empty list does not establish absence of attacks.');}}
 async function loadInput(body){$('load-path').disabled=true;$('folder-picker').disabled=true;$('input-status').textContent='Validating result artifacts…';try{await api('/api/load',{method:'POST',headers:{'Content-Type':'application/json','X-Demo-Token':bootstrap.token},body:JSON.stringify(body)});$('incident-filter').value='';await refresh();$('input-status').textContent='Selected output loaded. Source files were not changed.';}catch(e){$('input-status').textContent=e.message;}finally{$('load-path').disabled=false;$('folder-picker').disabled=false;}}
+const bytes=value=>value>=1024**3?(value/1024**3).toFixed(1)+' GiB':value>=1024**2?(value/1024**2).toFixed(1)+' MiB':value>=1024?(value/1024).toFixed(1)+' KiB':value+' B';
+function analysisDisabled(value){$('raw-log-picker').disabled=value;$('start-analysis').disabled=value;}
+function offerUploadCancel(job){$('cancel-upload').dataset.jobId=job.id;$('cancel-upload').hidden=false;$('analysis-status').textContent='A previous upload was interrupted. Cancel it before selecting the logs again.';}
+async function watchAnalysis(jobId,watch){
+ if(watch!==analysisWatch)return;
+ try{
+  const job=await api('/api/analysis');
+  if(job.id!==jobId)throw Error('Analysis session changed; select the logs again.');
+  if(job.status==='queued'||job.status==='running'){
+   const progress=job.progress||{};const processed=progress.processed_bytes==null?'':` · ${bytes(progress.processed_bytes)} / ${bytes(progress.total_bytes||job.total_bytes)}`;
+   $('analysis-status').textContent=`${progress.phase||job.status}${processed}. You may continue investigating the current dataset.`;
+   setTimeout(()=>watchAnalysis(jobId,watch),1000);return;
+  }
+  if(job.status==='completed'){$('analysis-status').textContent='Analysis complete. Opening the generated investigation…';await refresh();$('analysis-status').textContent='Analysis complete and generated output loaded automatically: '+job.output;$('cancel-upload').hidden=true;analysisDisabled(false);return;}
+  throw Error(job.error||'Analysis did not complete. The previous investigation is unchanged.');
+ }catch(error){$('analysis-status').textContent=error.message;analysisDisabled(false);}
+}
+async function analyze(files){
+ const watch=++analysisWatch;analysisDisabled(true);$('cancel-upload').hidden=true;
+ try{
+  const job=await api('/api/analysis',{method:'POST',headers:{'Content-Type':'application/json','X-Demo-Token':bootstrap.token},body:JSON.stringify({files:files.map(file=>({name:file.name,size:file.size}))})});
+  for(let index=0;index<files.length;index++){$('analysis-status').textContent=`Uploading ${index+1} / ${files.length}: ${files[index].name} (${bytes(files[index].size)})`;await api(`/api/analysis/${encodeURIComponent(job.id)}/files/${index}`,{method:'PUT',headers:{'Content-Type':'application/octet-stream','X-Demo-Token':bootstrap.token},body:files[index]});}
+  $('analysis-status').textContent='Upload complete. Starting the existing verification pipeline…';
+  await api('/api/analysis/start',{method:'POST',headers:{'Content-Type':'application/json','X-Demo-Token':bootstrap.token},body:JSON.stringify({job_id:job.id})});
+  await watchAnalysis(job.id,watch);
+ }catch(error){if(watch===analysisWatch){$('analysis-status').textContent=error.message;analysisDisabled(false);try{const active=await api('/api/analysis');if(['queued','running','completed'].includes(active.status)){analysisDisabled(true);await watchAnalysis(active.id,watch);}else if(active.status==='uploading'){analysisDisabled(true);offerUploadCancel(active);}}catch{}}}
+}
+$('analysis-form').onsubmit=e=>{e.preventDefault();const files=[...$('raw-log-picker').files];if(files.length)analyze(files);};
+$('cancel-upload').onclick=async()=>{const button=$('cancel-upload');button.disabled=true;try{await api('/api/analysis/cancel',{method:'POST',headers:{'Content-Type':'application/json','X-Demo-Token':bootstrap.token},body:JSON.stringify({job_id:button.dataset.jobId})});button.hidden=true;$('analysis-status').textContent='Interrupted upload cancelled. Its retained partial run can be inspected under runs/website/.';analysisDisabled(false);}catch(error){$('analysis-status').textContent=error.message;}finally{button.disabled=false;}};
 $('folder-form').onsubmit=e=>{e.preventDefault();loadInput({path:$('folder-path').value.trim()});};
 $('folder-picker').onchange=async e=>{try{const allowed=new Set(['summary.json','incidents.jsonl','findings.jsonl','evidence.jsonl','investigation-context.json']);const selected=[...e.target.files].filter(f=>f.webkitRelativePath.split('/').length===2&&allowed.has(f.name));if(!selected.length)throw Error('Choose the engine-output folder itself, containing summary.json and result artifacts.');if(selected.reduce((s,f)=>s+f.size,0)>32*1024*1024)throw Error('Selected artifacts exceed 32 MiB. Enter this folder’s local/server path instead.');const files={};for(const f of selected)files[f.name]=await f.text();await loadInput({files,label:selected[0].webkitRelativePath.split('/')[0]});}catch(error){$('input-status').textContent=error.message;}finally{e.target.value='';}};
-refresh().catch(e=>status(e.message));
+analysisDisabled(true);
+refresh().then(async()=>{analysisDisabled(false);const job=await api('/api/analysis');if(job.status==='queued'||job.status==='running'){analysisDisabled(true);watchAnalysis(job.id,++analysisWatch);}else if(job.status==='uploading'){analysisDisabled(true);offerUploadCancel(job);}}).catch(e=>status(e.message));

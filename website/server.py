@@ -1,13 +1,15 @@
-"""Local engine-output investigation viewer; no raw-log analysis or public deployment."""
-import argparse,hashlib,importlib.util,json,secrets,threading,re,io
+"""Local log-analysis and investigation viewer; not for public deployment."""
+import argparse,hashlib,importlib.util,json,secrets,threading,re,io,shutil,subprocess,sys
 from datetime import datetime,timezone
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse,unquote
 ROOT=Path(__file__).resolve().parent
 DEFAULT_DATA=ROOT.parent/'dummy-100mb-engine-output'
+RUNS=ROOT.parent/'runs'/'website'
 ALLOWED_FILES={'summary.json','incidents.jsonl','findings.jsonl','evidence.jsonl','investigation-context.json'}
 TOKEN=secrets.token_urlsafe(32);AI_LOCK=threading.Lock();DATA_LOCK=threading.RLock()
+JOB_LOCK=threading.RLock();ANALYSIS_LOCK=threading.Lock();ANALYSIS={'status':'idle'}
 DATA=None;SUMMARY={};CONTEXT={};INCIDENTS={};EVIDENCE={};META={}
 def load_dataset(folder=None,files=None,label=None):
  """Validate completely before replacing the active, read-only dataset."""
@@ -100,6 +102,89 @@ def evidence_ids(step):return [e for e in step.get('evidence_ids',[]) if isinsta
 def raw_ids(inc):return sorted({e for s in inc['steps'] for e in evidence_ids(s)})
 def timeline(inc):return sorted(inc['steps'],key=lambda s:(s.get('timestamp') is None,s.get('timestamp') or 0))
 load_dataset(DEFAULT_DATA)
+def analysis_status():
+ with JOB_LOCK:
+  job=ANALYSIS.copy();entries=[entry.copy() for entry in job.get('files',[])]
+ result={key:job[key] for key in ('id','status','error','output') if key in job}
+ result.update(files=len(entries),uploaded=sum(entry.get('received',False) for entry in entries),total_bytes=sum(entry.get('size',0) for entry in entries))
+ output=job.get('_output')
+ if job.get('status')=='running' and output:
+  try:
+   progress=json.loads((output/'progress.json').read_text())
+   result['progress']={key:progress[key] for key in ('phase','processed_bytes','total_bytes','counts') if key in progress}
+  except (OSError,ValueError,TypeError):pass
+ return result
+def create_analysis(files):
+ if not isinstance(files,list) or not 1<=len(files)<=16:raise ValueError('Choose 1 to 16 raw log files.')
+ entries=[];total=0
+ for value in files:
+  if not isinstance(value,dict) or not isinstance(value.get('name'),str) or not isinstance(value.get('size'),int):raise ValueError('Invalid raw log file list.')
+  name=Path(value['name']).name[:200]
+  if not name or name in ('.','..') or '\x00' in name or not 0<value['size']<=64*1024**3:raise ValueError('Each raw log must be between 1 byte and 64 GiB.')
+  total+=value['size'];entries.append(dict(name=name,size=value['size'],received=False))
+ if total>64*1024**3:raise ValueError('Combined raw logs exceed the 64 GiB local bridge limit.')
+ with JOB_LOCK:
+  if ANALYSIS.get('status') in ('uploading','queued','running'):raise RuntimeError('An upload or analysis is already active. Cancel an interrupted upload before starting another.')
+  RUNS.mkdir(parents=True,exist_ok=True)
+  if shutil.disk_usage(RUNS).free<total*2+1024**3:raise ValueError('Not enough free disk space for the upload and estimated analysis output.')
+  job_id='web_'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'_'+secrets.token_hex(4)
+  root=RUNS/job_id;inputs=root/'inputs';inputs.mkdir(parents=True)
+  for index,entry in enumerate(entries):entry['_path']=inputs/(f'{index:02d}_'+entry['name'])
+  ANALYSIS.clear();ANALYSIS.update(id=job_id,status='uploading',files=entries,_output=root/'output',_log=root/'engine.log')
+ return analysis_status()
+def cancel_analysis(job_id):
+ with JOB_LOCK:
+  if ANALYSIS.get('id')!=job_id or ANALYSIS.get('status')!='uploading':raise ValueError('Upload session is not active.')
+  if any(entry.get('receiving') for entry in ANALYSIS['files']):raise RuntimeError('Wait for the active file upload to finish before cancelling.')
+  ANALYSIS['status']='cancelled'
+ return analysis_status()
+def receive_analysis_file(job_id,index,stream,length):
+ with JOB_LOCK:
+  if ANALYSIS.get('id')!=job_id or ANALYSIS.get('status')!='uploading':raise ValueError('Upload session is not active.')
+  entries=ANALYSIS['files']
+  if not 0<=index<len(entries) or entries[index]['received'] or entries[index].get('receiving'):raise ValueError('Unexpected or duplicate upload.')
+  entry=entries[index]
+  if length!=entry['size']:raise ValueError('Uploaded file size does not match the selected file.')
+  entry['receiving']=True;path=entry['_path'];part=path.with_name(path.name+'.part')
+ try:
+  remaining=length
+  with part.open('xb') as target:
+   while remaining:
+    block=stream.read(min(1024**2,remaining))
+    if not block:raise ValueError('Upload ended before the selected file was complete.')
+    target.write(block);remaining-=len(block)
+  part.replace(path)
+  with JOB_LOCK:entry['received']=True;entry.pop('receiving',None)
+ except BaseException:
+  part.unlink(missing_ok=True)
+  with JOB_LOCK:entry.pop('receiving',None)
+  raise
+ return analysis_status()
+def run_analysis(job_id):
+ with ANALYSIS_LOCK:
+  with JOB_LOCK:
+   if ANALYSIS.get('id')!=job_id or ANALYSIS.get('status')!='queued':return
+   ANALYSIS['status']='running';inputs=[entry['_path'] for entry in ANALYSIS['files']];output=ANALYSIS['_output'];log=ANALYSIS['_log']
+  command=[sys.executable,str(ROOT.parent/'engine.py')]
+  for path in inputs:command.extend(('--input',str(path)))
+  command.extend(('--output',str(output),'--env',str(ROOT.parent/'.env')))
+  try:
+   with log.open('xb') as handle:completed=subprocess.run(command,stdout=handle,stderr=subprocess.STDOUT,check=False)
+   if completed.returncode:raise RuntimeError('Engine process failed')
+   with DATA_LOCK:meta=load_dataset(output)
+   with JOB_LOCK:ANALYSIS.update(status='completed',output=str(output),dataset_id=meta['id'])
+  except BaseException as exc:
+   try:
+    with log.open('a') as handle:handle.write('\nViewer activation failed: '+str(exc)[:2000]+'\n')
+   except OSError:pass
+   with JOB_LOCK:ANALYSIS.update(status='failed',error='Analysis failed; the previous investigation is unchanged. Inspect '+str(log))
+def start_analysis(job_id):
+ with JOB_LOCK:
+  if ANALYSIS.get('id')!=job_id or ANALYSIS.get('status')!='uploading':raise ValueError('Upload session is not ready.')
+  if not all(entry['received'] for entry in ANALYSIS['files']):raise ValueError('Upload every selected file before analysis.')
+  ANALYSIS['status']='queued'
+ threading.Thread(target=run_analysis,args=(job_id,),daemon=True).start()
+ return analysis_status()
 def risk(inc):
  ids=raw_ids(inc);successful=any(s.get('rule')=='failures_then_success' for s in inc['steps'])
  mapped=any(s.get('technique_id') for s in inc['steps'])
@@ -209,6 +294,7 @@ class Handler(BaseHTTPRequestHandler):
   if path in {'/','/app.js','/style.css'}:
    file=ROOT/({'/':'index.html'}.get(path,path[1:]));return self.send(200,file.read_bytes(),{'html':'text/html; charset=utf-8','js':'text/javascript; charset=utf-8','css':'text/css; charset=utf-8'}[file.suffix[1:]])
   if path=='/api/bootstrap':return self.send(200,dict(synthetic=META['synthetic'],dataset=META,summary=SUMMARY,token=TOKEN,ai_policy='No call until explicitly requested; selected incident, up to 12 sanitized previews of 800 characters plus supplied access context, at most two model calls. Key remains in backend .env.'))
+  if path=='/api/analysis':return self.send(200,analysis_status())
   if path=='/api/incidents':return self.send(200,sorted([item(i) for i in INCIDENTS.values()],key=lambda i:(-i['risk']['score'],i['incident_id']))[:250])
   if path.startswith('/api/evidence/'):
    v=EVIDENCE.get(path.split('/')[-1]);return self.send(200,v) if v else self.send(404,{'error':'Evidence not found'})
@@ -217,6 +303,18 @@ class Handler(BaseHTTPRequestHandler):
    if not inc:return self.send(404,{'error':'Incident not found'})
    if len(parts)==4 and parts[3]=='path':return self.send(200,dict(incident=inc,metrics=item(inc),graph=graph(inc),timeline=timeline(inc),reach=reach(inc),reach_graph=graph(inc,True)))
   return self.send(404,{'error':'Not found'})
+ def do_PUT(self):self.put()
+ def put(self):
+  if not self.valid_host():return self.send(403,{'error':'Local host required'})
+  origin=self.headers.get('Origin');expected={'http://'+self.headers.get('Host','')}
+  if origin not in expected or self.headers.get('X-Demo-Token')!=TOKEN:return self.send(403,{'error':'Same-origin action required'})
+  try:
+   parts=unquote(urlparse(self.path).path).strip('/').split('/')
+   if len(parts)!=5 or parts[:2]!=['api','analysis'] or parts[3]!='files':raise ValueError('Invalid upload route.')
+   length=int(self.headers.get('Content-Length','-1'))
+   result=receive_analysis_file(parts[2],int(parts[4]),self.rfile,length)
+   return self.send(200,result)
+  except (ValueError,TypeError,KeyError,OSError):return self.send(400,{'error':'Invalid or incomplete raw log upload.'})
  def do_POST(self):
   with DATA_LOCK:self.post()
  def post(self):
@@ -226,9 +324,12 @@ class Handler(BaseHTTPRequestHandler):
   if self.headers.get('Content-Type')!='application/json':return self.send(415,{'error':'JSON required'})
   try:
    n=int(self.headers.get('Content-Length','0'))
-   if not 0<n<=(80*1024**2 if self.path=='/api/load' else 2048):raise ValueError()
+   if not 0<n<=(80*1024**2 if self.path=='/api/load' else 65536 if self.path=='/api/analysis' else 2048):raise ValueError()
    body=json.loads(self.rfile.read(n))
    if not isinstance(body,dict):raise ValueError()
+   if self.path=='/api/analysis':return self.send(201,create_analysis(body.get('files')))
+   if self.path=='/api/analysis/start':return self.send(202,start_analysis(body.get('job_id')))
+   if self.path=='/api/analysis/cancel':return self.send(200,cancel_analysis(body.get('job_id')))
    if self.path=='/api/load':
     if AI_LOCK.locked():return self.send(409,{'error':'Wait for the active report before switching data.'})
     if isinstance(body.get('path'),str) and 0<len(body['path'])<=4096:result=load_dataset(folder=body['path'])
@@ -238,6 +339,7 @@ class Handler(BaseHTTPRequestHandler):
    if body.get('dataset_id')!=META['id']:return self.send(409,{'error':'Dataset changed; reload before generating a report.'})
    inc=INCIDENTS.get(body.get('incident_id'));mode=body.get('mode')
    if self.path!='/api/report' or not inc or mode not in ('template','ai'):raise ValueError()
+  except RuntimeError as exc:return self.send(409,{'error':str(exc)})
   except (ValueError,TypeError,AttributeError,KeyError,OSError) as exc:
    message=str(exc) if isinstance(exc,ValueError) and not isinstance(exc,json.JSONDecodeError) else 'Invalid folder/artifacts or report request. Current input is unchanged.'
    return self.send(400,{'error':message or 'Invalid request; current input is unchanged.'})
