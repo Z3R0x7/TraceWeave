@@ -44,7 +44,7 @@ def reachability(directory: Path, incident: Incident):
                 item = dict(zip(columns, row))
                 kind = item["relationship_type"]
                 if kind not in {"permission", "admin_access", "allowed_network",
-                                "successful_remote_auth"}:
+                                "successful_remote_auth", "observed_successful_authentication"}:
                     continue
                 target = item["target_host_id"]
                 if not target or target in hosts:
@@ -52,6 +52,8 @@ def reachability(directory: Path, incident: Incident):
                 def timestamp(value):
                     if isinstance(value, datetime):
                         return value if value.tzinfo else None
+                    if not value or str(value).lower() in ("none", "null", ""):
+                        return None
                     try:
                         result = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
                         return result if result.tzinfo else None
@@ -61,33 +63,30 @@ def reachability(directory: Path, incident: Incident):
                 start, end = timestamp(item["valid_from"]), timestamp(item["valid_to"])
                 if not observed or observed >= reference:
                     continue
-                explicit = kind != "successful_remote_auth"
+                explicit = kind in {"permission", "admin_access", "allowed_network"}
                 if explicit and (not start or not end or not start <= reference <= end):
                     continue
                 # Host attribution must be time-qualified, even for historical logons.
                 if item["principal_id"] not in accounts:
-                    if not start or not end or not start <= observed <= end:
+                    if not item.get("source_host_id") or item.get("source_host_id") == "unknown":
+                        continue
+                    if start and end and not (start <= observed <= end):
                         continue
                 strength = "high" if explicit else "medium"
                 score = (5 if explicit else 3) - int((reference - observed).days > 30)
+                reason_text = "Explicit access valid at reference time" if explicit else "Historical authentication observation prior to reference time"
+                assumptions_list = ["Evidence strength is not a probability of compromise."] + ([] if explicit else [
+                    "Historical authentication observation is not granted permission or verified remote reachability."
+                ])
                 candidate = candidates.setdefault(target, {
                     "target_id": target, "evidence_strength": strength, "score": score,
                     "relationship": kind, "evidence_ids": [], "support": [],
-                    "assumptions": ["Evidence strength is not a probability of compromise."]
-                    + ([] if explicit else [
-                        "Historical successful access does not establish current permission."
-                    ]),
-                    "reason": "Explicit access valid at reference time" if explicit
-                    else "Successful remote authentication observed before reference time"
+                    "assumptions": assumptions_list,
+                    "reason": reason_text
                 })
                 if score > candidate["score"]:
                     candidate.update(score=score, evidence_strength=strength, relationship=kind,
-                                     reason="Explicit access valid at reference time" if explicit
-                                     else "Successful remote authentication observed before reference time",
-                                     assumptions=["Evidence strength is not a probability of compromise."]
-                                     + ([] if explicit else [
-                                         "Historical successful access does not establish current permission."
-                                     ]))
+                                     reason=reason_text, assumptions=assumptions_list)
                 if len(candidate["support"]) < 10:
                     candidate["evidence_ids"].append(item["evidence_id"])
                     candidate["support"].append(item)

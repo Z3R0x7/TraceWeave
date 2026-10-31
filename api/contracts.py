@@ -112,9 +112,11 @@ class Incident(Contract):
                 t.get("id") for t in self.techniques
             }:
                 raise ValueError("Timeline references unknown technique")
+        step_ids = {s.step_id for s in self.timeline}
+        valid_node_ids = ids | step_ids
         for edge in self.relationships:
-            if edge.source_id not in ids or edge.target_id not in ids:
-                raise ValueError("Relationship references unknown entity")
+            if edge.source_id not in valid_node_ids or edge.target_id not in valid_node_ids:
+                raise ValueError("Relationship references unknown entity or step")
         if self.analysis_reference_time.tzinfo is None:
             raise ValueError("Reference time must include timezone")
         for values, key in [(self.timeline, "step_id"),
