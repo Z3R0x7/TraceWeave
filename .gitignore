@@ -22,3 +22,10 @@ engine/data/input/*
 !engine/data/input/.gitkeep
 runs/
 dumbo/
+data/
+*.parquet
+*.duckdb
+outputs/
+.coverage
+htmlcov/
+*.egg-info/

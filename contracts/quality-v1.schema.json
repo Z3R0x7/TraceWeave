@@ -1,0 +1,57 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "total_records_read": {
+      "minimum": 0,
+      "title": "Total Records Read",
+      "type": "integer"
+    },
+    "successfully_parsed_records": {
+      "minimum": 0,
+      "title": "Successfully Parsed Records",
+      "type": "integer"
+    },
+    "malformed_records": {
+      "minimum": 0,
+      "title": "Malformed Records",
+      "type": "integer"
+    },
+    "missing_critical_fields": {
+      "minimum": 0,
+      "title": "Missing Critical Fields",
+      "type": "integer"
+    },
+    "unknown_event_types": {
+      "minimum": 0,
+      "title": "Unknown Event Types",
+      "type": "integer"
+    },
+    "duplicate_records": {
+      "minimum": 0,
+      "title": "Duplicate Records",
+      "type": "integer"
+    },
+    "late_arriving_events": {
+      "minimum": 0,
+      "title": "Late Arriving Events",
+      "type": "integer"
+    },
+    "records_excluded_from_detection": {
+      "minimum": 0,
+      "title": "Records Excluded From Detection",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "total_records_read",
+    "successfully_parsed_records",
+    "malformed_records",
+    "missing_critical_fields",
+    "unknown_event_types",
+    "duplicate_records",
+    "late_arriving_events",
+    "records_excluded_from_detection"
+  ],
+  "title": "Quality",
+  "type": "object"
+}

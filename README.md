@@ -105,7 +105,54 @@ python3 engine.py analyze --input <dataset> --output <new-run-directory> --job-i
 
 Read `progress.v1.json` during processing and `manifest.v1.json` after completion. The manifest points to incident summaries, individual incident bundles, evidence, and access-history outputs. See [engine/CONTRACT.md](engine/CONTRACT.md) and the JSON Schemas under `engine/contracts/` for exact inputs and outputs. The application can be added alongside the `engine/` directory.
 
-## Run tests
+## Investigation Application (UI, FR-6 & Reporting)
+
+The investigation application provides the analyst workstation for exploring incidents, navigating timeline events, inspecting entity graphs, running FR-6 look-ahead reachability, and generating AI or deterministic reports.
+
+> See [EXPLANATION.md](EXPLANATION.md) for the complete architecture guide and codebase walkthrough.
+
+### Run with Docker Compose
+
+```bash
+docker compose up --build
+```
+
+- Web UI: http://localhost:8501
+- API Documentation: http://localhost:8000/docs
+
+### Run Locally with Python
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
+
+# Terminal 1: FastAPI Backend
+uvicorn api.main:app --host 127.0.0.1 --port 8000
+
+# Terminal 2: Streamlit Frontend
+streamlit run ui/app.py --server.port=8501 --browser.gatherUsageStats=false
+```
+
+### Ingesting Engine Outputs
+
+To adapt an engine run into the application:
+
+```bash
+python scripts/adapt_dumbo.py engine/runs/sample data/input/sample
+```
+
+Then on the web UI Import page, enter `sample/manifest.json`.
+
+### Run Application Tests
+
+```bash
+pytest --cov=api --cov-report=term-missing
+pyright
+ruff check api ui scripts tests
+```
+
+## Run Engine Tests
 
 From `TraceWeave/engine`:
 
