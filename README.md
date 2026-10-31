@@ -6,6 +6,30 @@ Uses selected LateralX detection code and Jevline normalization/relationship cod
 The proposed server/API integration is documented in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 It is a plan; the integration is not implemented in this repository.
 
+A separate local three-tab investigation prototype reads the synthetic fixture under
+`dummy-100mb-engine-output/`. See [website/README.md](website/README.md) for its data flow,
+AI report policy and run command. It does not change the core engine or deploy the server plan.
+
+## Stage 1 connection POC
+
+This checkout includes a deliberately small browser/API proof of concept. It checks the
+backend health endpoints and proves an authenticated nonce round trip; uploads, AI sessions,
+workers and result rendering are later plan stages.
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+export TRACEWEAVE_POC_TOKEN='use-a-local-test-token'
+.venv/bin/uvicorn api:app --reload --port 8000
+```
+
+Open <http://127.0.0.1:8000/> and enter the same temporary token. The token is cleared from
+the form after the request and is not stored by the page. Run the focused check with:
+
+```sh
+.venv/bin/python -m unittest tests/test_poc_api.py
+```
+
 ## Run
 
 Python 3.12+ and Node 24+ are required. From the repository directory, prepare a fresh checkout:
