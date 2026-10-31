@@ -1,7 +1,0 @@
-duckdb==1.4.1
-pyarrow==22.0.0
-psutil==7.1.2
-pydantic==2.12.3
-httpx==0.28.1
-rich==14.2.0
-pytz==2025.2

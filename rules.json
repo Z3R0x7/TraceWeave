@@ -1,0 +1,16 @@
+{
+  "version": "2.0",
+  "failure_threshold": 10,
+  "authentication_window_seconds": 900,
+  "incident_gap_seconds": 1800,
+  "incident_max_steps": 100,
+  "firewall_signature_mappings": [
+    {"contains":"zerologon", "technique":"T1210", "name":"Exploitation of Remote Services", "tactic":"Lateral Movement", "phase":"Exploitation"},
+    {"contains":"log4j", "technique":"T1190", "name":"Exploit Public-Facing Application", "tactic":"Initial Access", "phase":"Exploitation"},
+    {"contains":"sql.injection", "technique":"T1190", "name":"Exploit Public-Facing Application", "tactic":"Initial Access", "phase":"Exploitation"},
+    {"contains":"directory.traversal", "technique":"T1190", "name":"Exploit Public-Facing Application", "tactic":"Initial Access", "phase":"Exploitation"},
+    {"contains":"path.traversal", "technique":"T1190", "name":"Exploit Public-Facing Application", "tactic":"Initial Access", "phase":"Exploitation"},
+    {"contains":"cobalt.strike.beacon", "technique":"T1071", "name":"Application Layer Protocol", "tactic":"Command and Control", "phase":"Command and Control"},
+    {"contains":"brute.force", "technique":"T1110", "name":"Brute Force", "tactic":"Credential Access", "phase":"Exploitation"}
+  ]
+}
