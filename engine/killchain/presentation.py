@@ -8,6 +8,10 @@ def brief(bundle,manifest):
     return {
         'incident_id':bundle['incident_id'],
         'title':bundle['title'],
+        'priority_score':bundle.get('priority_score'),
+        'priority_basis':bundle.get('priority_basis'),
+        'enrichments':bundle.get('enrichments',[]),
+        'recommended_response':bundle.get('response_playbook',[]),
         'status':'Requires analyst review',
         'coverage':manifest.get('input_completeness','unknown'),
         'what_was_observed':[{'time':s['timestamp'],'action':s['summary'],

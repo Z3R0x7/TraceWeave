@@ -1,0 +1,82 @@
+{
+  "source_bytes": 105591026,
+  "source_records": 200000,
+  "findings": 9137,
+  "serial_parallel_findings_differences": 0,
+  "full_30_50gb_validated": false,
+  "measurements": {
+    "gaps-official-200k-optimized-serial": {
+      "job_id": "gaps-official-200k-optimized-serial",
+      "completed": true,
+      "elapsed_seconds": 79.46,
+      "input_bytes": 105591026,
+      "scanned_bytes": 105591026,
+      "rejected_bytes": 0,
+      "rejected_records": 0,
+      "reused_parse_bytes": 0,
+      "input_mb_per_second": 1.329,
+      "sampled_peak_process_tree_rss_bytes": null,
+      "os_process_peak_rss_bytes": 1281843200,
+      "rss_sample_interval_seconds": 0.25,
+      "peak_temp_bytes_sampled": 0,
+      "retained_output_bytes": 80398328,
+      "phase_times": {
+        "audit_seconds": 0.472532533982303,
+        "ingestion_seconds": 41.297800270986045,
+        "normalization_seconds": 7.03756204698584,
+        "detection_correlation_seconds": 0.21994434102089144,
+        "export_seconds": 11.014104978996329
+      },
+      "measurement_limitations": "Sampled RSS may miss spikes and is not container memory accounting. Independently measure container peak for official judging.",
+      "hardware": {
+        "cpu_cores": 16,
+        "memory_total_gb": 32.0,
+        "memory_available_gb": 14.22,
+        "disk_free_gb": 423.43
+      },
+      "settings": {
+        "threads": 4,
+        "database_memory_gb": 4.0
+      }
+    },
+    "gaps-official-200k-final-parallel": {
+      "job_id": "gaps-official-200k-final-parallel",
+      "completed": true,
+      "elapsed_seconds": 45.729,
+      "input_bytes": 105591026,
+      "scanned_bytes": 105591026,
+      "rejected_bytes": 0,
+      "rejected_records": 0,
+      "reused_parse_bytes": 0,
+      "input_mb_per_second": 2.309,
+      "sampled_peak_process_tree_rss_bytes": null,
+      "os_process_peak_rss_bytes": 1149722624,
+      "rss_sample_interval_seconds": 0.25,
+      "peak_temp_bytes_sampled": 0,
+      "retained_output_bytes": 80364146,
+      "phase_times": {
+        "audit_seconds": 0.4893414579855744,
+        "ingestion_seconds": 17.75396822602488,
+        "normalization_seconds": 7.245422909007175,
+        "detection_correlation_seconds": 0.905158706009388,
+        "export_seconds": 11.276736428000731
+      },
+      "measurement_limitations": "Sampled RSS may miss spikes and is not container memory accounting. Independently measure container peak for official judging.",
+      "hardware": {
+        "cpu_cores": 16,
+        "memory_total_gb": 32.0,
+        "memory_available_gb": 13.5,
+        "disk_free_gb": 423.26
+      },
+      "settings": {
+        "threads": 4,
+        "database_memory_gb": 4.0
+      }
+    }
+  },
+  "limitations": [
+    "Runs included code/output optimizations and brief background overlap; timings are diagnostic, not a controlled speedup estimate.",
+    "Sample is only a record-aligned official prefix. No ground-truth accuracy was measured.",
+    "Process-tree RSS unavailable on this host. Parent OS peak is not combined-worker peak."
+  ]
+}

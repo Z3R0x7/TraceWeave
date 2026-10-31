@@ -32,8 +32,18 @@ def validate_run(run):
     if manifest.get('status')!='completed':raise ValueError('Run is not completed')
     for key in ['incidents_path','evidence_path','normalized_path','access_history_path','host_observations_path','findings_path']:
         if not within(run,manifest[key]).is_file():raise ValueError('Missing '+key)
-    con=duckdb.connect()
-    count=0
+    import tempfile
+    import pyarrow as pa
+    temporary=tempfile.TemporaryDirectory(prefix='traceweave-validate-')
+    from pathlib import Path
+    con=duckdb.connect(str(Path(temporary.name)/'validation.duckdb'))
+    count=0;citations=[]
+    con.execute('CREATE TABLE citations(incident_id VARCHAR,evidence_id VARCHAR)')
+    def flush_citations():
+        if citations:
+            con.register('citation_batch',pa.Table.from_pylist(citations))
+            con.execute('INSERT INTO citations SELECT * FROM citation_batch')
+            con.unregister('citation_batch');citations.clear()
     try:
         con.execute("SET memory_limit='256MB'");con.execute('SET threads=1')
         con.execute('CREATE VIEW evidence AS SELECT * FROM read_parquet('+"'"+str(within(run,manifest['evidence_path'])).replace("'","''")+"')")
@@ -54,11 +64,41 @@ def validate_run(run):
                 for key in ['source_step_id','target_step_id']:
                     if key in edge and edge[key] not in steps:raise ValueError('Unknown edge step')
                 cited.update(edge['evidence_ids'])
-            if cited:
-                actual={r[0] for r in con.execute('SELECT DISTINCT evidence_id FROM evidence WHERE incident_id=? AND evidence_id IN (SELECT unnest(?))',[entry['incident_id'],list(cited)]).fetchall()}
-                if cited-actual:raise ValueError('Dangling evidence references')
+            citations.extend({'incident_id':entry['incident_id'],'evidence_id':eid} for eid in cited)
+            if len(citations)>=4096:flush_citations()
+        flush_citations()
+        if con.execute('SELECT 1 FROM citations c ANTI JOIN evidence e ON c.incident_id=e.incident_id AND c.evidence_id=e.evidence_id LIMIT 1').fetchone():raise ValueError('Dangling evidence references')
         if count!=manifest['incident_count']:raise ValueError('Incident count mismatch')
         progress=load_json(run/'progress.v1.json');ProgressContract.model_validate(progress)
         if progress['records_read']!=progress['records_parsed']+progress['malformed_records']:raise ValueError('Record accounting mismatch')
         return {'valid':True,'incident_count':count,'input_completeness':manifest['input_completeness']}
-    finally:con.close()
+    finally:
+        con.close();temporary.cleanup()
+
+
+def raw_evidence(run,file_id,offset,lines=1):
+    """Only registered immutable sources; no caller-provided filesystem path."""
+    from pathlib import Path
+    if isinstance(offset,bool) or offset<0 or not 1<=lines<=100:raise ValueError('offset must be nonnegative; lines must be 1..100')
+    manifest=load_json(run/'manifest.v1.json')
+    matches=[source for source in manifest['sources'] if source['source_file_id']==file_id]
+    if len(matches)!=1:raise ValueError('Unknown source file ID')
+    source=matches[0];path=Path(source['source_file']);stat=path.stat()
+    if stat.st_size!=source['size_bytes'] or stat.st_mtime_ns!=source['mtime_ns']:raise ValueError('Source changed since analysis')
+    if offset>=stat.st_size:raise ValueError('Offset outside source')
+    remaining=65536;records=[]
+    with path.open('rb') as handle:
+        if offset:
+            handle.seek(offset-1)
+            if handle.read(1)!=b'\n':raise ValueError('Offset must be a record boundary')
+        handle.seek(offset)
+        for _ in range(lines):
+            start=handle.tell();raw=handle.readline(remaining+1)
+            if not raw:break
+            if len(raw)>remaining:raise ValueError('Raw evidence exceeds 64 KiB response limit')
+            remaining-=len(raw)
+            try:text=raw.decode('utf-8')
+            except UnicodeDecodeError:text=None
+            records.append({'byte_offset':start,'byte_length':len(raw),'text':text,'encoding':'utf8' if text is not None else 'unsupported_binary'})
+            if not remaining:break
+    return {'source_file_id':file_id,'records':records}

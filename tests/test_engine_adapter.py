@@ -27,5 +27,7 @@ def test_firewall_engine_handoff(tmp_path):
         incident=Incident.model_validate_json(item.read_text())
         assert incident.engine_review['status']=='not_requested'
         assert incident.kill_chain==[]
+        assert incident.steps_truncated is False
+        assert incident.total_step_count==1
         assert any(e.type=='ip' for e in incident.entities)
-    assert len(list((run/'briefs').glob('*.json')))==1
+    assert len((run/'briefs.v1.jsonl').read_text().splitlines())==1

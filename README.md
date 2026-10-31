@@ -2,7 +2,7 @@
 
 ## Validation status
 
-The engine supports bounded-memory, disk-backed processing and configurable resources for larger files. Complete 30 GB and 50 GB runs have **not been validated**. Current real-data validation covers the first 10,000 official records; automated tests cover parsing, detection, correlation and application handoff. The supplied source contains unsupported binary data, so a full analysis requires a valid replacement or an explicitly partial recovery run.
+The engine supports bounded-memory, disk-backed processing and configurable resources for larger files. Complete 30 GB and 50 GB runs have **not been validated**. Real-data validation includes a 200,000-record (105.6 MB) official prefix; automated tests cover parsing, detection, correlation and application handoff. The supplied source contains unsupported binary data, so a full analysis requires a valid replacement or an explicitly partial recovery run.
 
 ## Requirements
 
@@ -35,6 +35,41 @@ python3 engine.py analyze --input /path/to/verified-firex.log --input-format for
 ```
 
 Use a new output directory per run. Default `auto` detects FortiGate records or ECS JSON per line. Unsupported binary input stops analysis explicitly rather than silently excluding an unknown section. Resolve the supplied file's binary sections and timestamp discrepancy before claiming a complete-tier run. See `engine/DATASET_POLICY.md` for validation status.
+
+## Larger files, corrupt records and resume
+
+From `TraceWeave/engine`, inspect and adjust `examples.scale.json` for your machine. Input size has no application cap; free disk, processing time and source format still matter. The disk estimate is configurable and memory control is sampled; Docker limits provide hard isolation.
+
+```bash
+python3 engine.py analyze --input /logs/firex.log --output runs/large --config examples.scale.json --quiet
+python3 engine.py summary --run runs/large
+python3 engine.py metrics --run runs/large
+python3 engine.py incidents --run runs/large --sort priority
+```
+
+For corrupt-record tolerance without the example config, add `--corrupt-policy skip`. Every rejected line has a byte offset, byte length and reason in `diagnostics/rejected.jsonl`; the summary shows excluded bytes. Later valid lines are still parsed. Default `strict` blocks on unsupported binary bytes; `prefix` explicitly limits analysis to the preceding text prefix. Binary bytes cannot be interpreted as security events by any of these modes.
+
+To cancel from another terminal and then resume the same failed/cancelled run:
+
+```bash
+python3 engine.py cancel --run runs/large
+python3 engine.py analyze --input /logs/firex.log --output runs/large --config examples.scale.json --resume --quiet
+```
+
+Resume reuses completed parse partitions only; SQL analysis restarts. Keep source files and parse options unchanged. Successful runs cannot be resumed. `raw --run <run> --file-id <registered-source-id> --offset <line-start-byte>` retrieves bounded source evidence while the original file remains unchanged.
+
+See [engine gap review](engine/GAP_REVIEW.md) for implemented boundaries and remaining application work.
+
+## Offline intelligence and response guidance
+
+Obtain a feed snapshot separately. Convert a local one-IP-per-line text file (or CSV with `--csv-column <name>`) from `TraceWeave/engine`:
+
+```bash
+python3 tools/import_intelligence.py ip --input /feeds/ips.txt --output /feeds/indicators.json --source '<feed URL/version>' --retrieved-at '<ISO timestamp with timezone>'
+python3 tools/import_intelligence.py attack-stix --input /feeds/enterprise-attack.json --output /feeds/playbooks.json --source '<MITRE bundle URL/version>' --retrieved-at '<ISO timestamp with timezone>'
+```
+
+Set `indicator_snapshot` and `playbook_snapshot` paths in your config. Feed formats and licenses vary; the converter accepts exact IP/domain values, not URLs or hashes. Supply actual source/date metadata. Mitigation cards are recommendations, not executed actions. Asset and allowlist configuration examples appear in [engine/GAP_REVIEW.md](engine/GAP_REVIEW.md).
 
 ## Generate secondary regression logs
 
@@ -103,7 +138,7 @@ Use the command for your configured provider. Missing keys or failed requests le
 
 Reviews examine up to 20 primary evidence records and 10 related candidate records within a five-minute window, subject to the configured input limit. Candidate retrieval uses shared hosts, accounts or source/destination pairs. It does not establish causality. Each suggested mapping and connection is checked against the evidence packet and the supplied technique reference. Responses are cached by packet/model; reviews never replace the baseline graph.
 
-Use `show` to read the explanation. Clean machine-readable summaries are saved in `runs/<run>/briefs/<incident-id>.json`; detailed records remain in `incidents/`. The brief separates observations, engine connections, AI suggestions, missing evidence and input coverage. Re-run the adapter into a **new handoff directory** after AI review to expose updated results in the UI. AI reviews automatically increase changed bundle revisions for re-import.
+Use `show` to read the explanation. Clean machine-readable summaries are saved in `runs/<run>/briefs.v1.jsonl` (baseline stream); reviewed incident overlays are in `briefs/<incident-id>.json`; detailed records remain in `incidents/`. The brief separates observations, engine connections, AI suggestions, missing evidence and input coverage. Re-run the adapter into a **new handoff directory** after AI review to expose updated results in the UI. AI reviews automatically increase changed bundle revisions for re-import.
 
 For an explicitly partial analysis of a damaged file, add `--recover-valid-prefix` to `analyze`. This excludes everything from the damaged record onward and reports excluded bytes. It is not a complete-tier benchmark.
 

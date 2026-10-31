@@ -11,7 +11,7 @@ def parse_key_values(line):
         if line[end:match.start()].strip():raise ValueError('invalid_key_value_record')
         key,quoted,bare=match.groups()
         if key in fields:raise ValueError('duplicate_key_value_field')
-        fields[key]=re.sub(r'\\(["\\])',r'\1',quoted) if quoted is not None else bare
+        fields[key]=(re.sub(r'\\(["\\])',r'\1',quoted) if '\\' in quoted else quoted) if quoted is not None else bare
         end=match.end()
     if not fields or line[end:].strip():raise ValueError('invalid_key_value_record')
     return fields
@@ -42,7 +42,7 @@ def firewall_event(fields):
     user=fields.get('user')
     sent=int(fields.get('sentbyte',0)) if fields.get('sentbyte','0').isdigit() else 0
     received=int(fields.get('rcvdbyte',0)) if fields.get('rcvdbyte','0').isdigit() else 0
-    return {'@timestamp':stamp.isoformat(),'event':{'category':[category],'action':action,'outcome':outcome},
+    return {'_parsed_timestamp':stamp,'@timestamp':stamp.isoformat(),'event':{'category':[category],'action':action,'outcome':outcome},
       'host':{'name':host},'user':{'name':user},
       'source':{'ip':fields.get('srcip'),'port':fields.get('srcport')},
       'destination':{'ip':fields.get('dstip'),'port':fields.get('dstport'),'domain':fields.get('hostname')},

@@ -5,11 +5,12 @@ import hashlib
 from .common import utcnow
 
 
-def audit_file(path):
+def audit_file(path,check=None):
     path=Path(path).resolve();before=path.stat();digest=hashlib.sha256()
     decoder=codecs.getincrementaldecoder('utf-8')();offset=0;first_invalid=None
     with path.open('rb') as f:
         while block:=f.read(4*1024*1024):
+            if check:check()
             digest.update(block)
             if first_invalid is None:
                 carry=len(decoder.getstate()[0])

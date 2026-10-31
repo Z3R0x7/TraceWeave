@@ -93,7 +93,7 @@ def review_run(run,config,incident_id=None,caller=None):
     if not model:raise ValueError('Set --ai-model or OPENAI_MODEL for OpenAI')
     lock=run/'.review.lock'
     fd=os.open(lock,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600);os.close(fd)
-    reviewed=0;failures=0;selected=0
+    reviewed=0;failures=0;selected=0;changed_revisions={}
     con=None
     try:
         (run/'ai_cache').mkdir(exist_ok=True)
@@ -125,6 +125,7 @@ def review_run(run,config,incident_id=None,caller=None):
                     bundle['ai_review']={'status':'failed','provider':provider,'model':model,
                         'reason':'Provider unavailable or response failed validation; baseline results preserved.'}
                 bundle['revision']=bundle.get('revision',1)+1
+                changed_revisions[bundle['incident_id']]=bundle['revision']
                 atomic_json(bundle_path,bundle)
                 from .presentation import write_brief
                 write_brief(run,bundle,manifest)
@@ -135,7 +136,7 @@ def review_run(run,config,incident_id=None,caller=None):
             with summaries.open() as source,updated.open('w') as target:
                 for line in source:
                     row=json.loads(line)
-                    row['revision']=load_json(within(run,row['bundle_path']))['revision']
+                    if row['incident_id'] in changed_revisions:row['revision']=changed_revisions[row['incident_id']]
                     target.write(json.dumps(row)+'\n')
             os.replace(updated,summaries)
         finally:updated.unlink(missing_ok=True)

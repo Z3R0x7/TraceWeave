@@ -316,6 +316,52 @@
       ],
       "default": null,
       "title": "Engine Review"
+    },
+    "enrichments": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Enrichments",
+      "type": "array"
+    },
+    "response_playbook": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Response Playbook",
+      "type": "array"
+    },
+    "priority_basis": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Priority Basis"
+    },
+    "total_step_count": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Total Step Count"
+    },
+    "steps_truncated": {
+      "default": false,
+      "title": "Steps Truncated",
+      "type": "boolean"
     }
   },
   "required": [

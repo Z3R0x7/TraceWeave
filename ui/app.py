@@ -133,6 +133,21 @@ else:
         for limitation in incident.get('data_quality_impact',[]):
             if limitation.startswith(('Input coverage:','Excluded source bytes:')):st.caption(limitation)
         st.write(f"Severity: {incident['severity']} · Risk: {incident['risk_score']}")
+        if incident.get('steps_truncated'):st.warning(f"Showing a bounded preview of {incident.get('total_step_count')} steps. Full detections are retained by the engine.")
+        if incident.get('priority_basis'):st.caption(incident['priority_basis'])
+        if incident.get('enrichments'):
+            st.write('Offline intelligence matches')
+            for match in incident['enrichments']:
+                st.write(f"{match['type']}: {match['value']}")
+                st.caption(f"Source: {match['source']} · Snapshot: {match['snapshot_date']}")
+                st.caption(match['meaning'])
+                with st.expander('Match evidence'):st.json(match['evidence_ids'])
+        if incident.get('response_playbook'):
+            st.write('Recommended response — analyst review required')
+            for card in incident['response_playbook']:
+                st.caption(f"{card['technique_id']} · {card['source']} · {card['snapshot_date']}")
+                for mitigation in card['mitigations']:
+                    st.write(mitigation['name']+': '+mitigation['description'])
         st.json(incident["techniques"])
         if incident.get("kill_chain"):
             st.write("Kill chain labels")

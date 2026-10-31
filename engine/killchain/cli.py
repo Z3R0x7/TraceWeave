@@ -13,11 +13,21 @@ from .resources import resolve_config,hardware
 console=Console(stderr=True)
 
 def config_overrides(args):
-    names=['recover_valid_prefix','input_format','profile','threads','memory_gb','batch_records','spill_gb','min_free_gb','ai_provider','ai_model','ai_max_reviews','demo_indicators']
-    return {k:getattr(args,k,None) for k in names if getattr(args,k,None) is not None}
+    names=['parse_workers','chunk_mb','total_memory_gb','timeout_seconds','corrupt_policy','recover_valid_prefix','input_format','profile','threads','memory_gb','batch_records','spill_gb','min_free_gb','ai_provider','ai_model','ai_max_reviews','demo_indicators']
+    result={k:getattr(args,k,None) for k in names if getattr(args,k,None) is not None}
+    policy=result.pop('corrupt_policy',None)
+    if policy:
+        result['fail_on_binary']=policy=='strict'
+        result['recover_valid_prefix']=policy=='prefix'
+    return result
 
 def add_config(p):
     p.add_argument('--config',type=Path)
+    p.add_argument('--parse-workers',type=int,help='Parallel parsing processes; auto limited by memory/CPU')
+    p.add_argument('--chunk-mb',type=float,help='Newline-aligned parse partition target size')
+    p.add_argument('--total-memory-gb',type=float,help='Sampled process-tree budget, not a hard OS limit')
+    p.add_argument('--timeout-seconds',type=float,help='0 disables timeout')
+    p.add_argument('--corrupt-policy',choices=['strict','skip','prefix'],help='strict stops; skip continues with exact byte exclusions; prefix stops coverage at first corrupt record')
     p.add_argument('--recover-valid-prefix',action='store_true',default=None,help='Explicitly allow PARTIAL analysis of the verified text prefix; excluded bytes are reported')
     p.add_argument('--input-format',choices=['auto','jsonl','fortigate'],help='Default auto detects each record; official data uses FortiGate key=value')
     p.add_argument('--profile',choices=['auto','conservative','balanced','throughput'])
@@ -39,11 +49,16 @@ def parser():
     c=sub.add_parser('configure',help='Write non-secret configuration interactively');c.add_argument('--output',type=Path,default=Path('config.local.json'))
     au=sub.add_parser('audit',help='Audit the complete file for UTF-8/binary boundaries and SHA-256');au.add_argument('--input',type=Path,required=True)
     i=sub.add_parser('inspect',help='Inspect bounded input samples');i.add_argument('--input',type=Path,required=True);i.add_argument('--limit',type=int,default=20)
-    a=sub.add_parser('analyze',help='Analyze a stable line-delimited JSON dataset');a.add_argument('--input',type=Path,required=True);a.add_argument('--output',type=Path,required=True);a.add_argument('--job-id');a.add_argument('--quiet',action='store_true');add_config(a)
-    l=sub.add_parser('incidents',help='List saved incidents');l.add_argument('--run',type=Path,required=True);l.add_argument('--offset',type=int,default=0);l.add_argument('--limit',type=int,default=20);l.add_argument('--sort',choices=['id','time','severity'],default='id');l.add_argument('--json',action='store_true')
+    a=sub.add_parser('analyze',help='Analyze a stable line-delimited JSON dataset');a.add_argument('--input',type=Path,required=True);a.add_argument('--output',type=Path,required=True);a.add_argument('--job-id');a.add_argument('--quiet',action='store_true');a.add_argument('--resume',action='store_true',help='Reuse completed parse partitions from a failed run');add_config(a)
+    l=sub.add_parser('incidents',help='List saved incidents');l.add_argument('--run',type=Path,required=True);l.add_argument('--offset',type=int,default=0);l.add_argument('--limit',type=int,default=20);l.add_argument('--sort',choices=['id','time','severity','priority'],default='id');l.add_argument('--json',action='store_true')
     s=sub.add_parser('show',help='Inspect one saved incident');s.add_argument('--run',type=Path,required=True);s.add_argument('--incident',required=True);s.add_argument('--json',action='store_true')
     e=sub.add_parser('evidence',help='Read normalized evidence and source locator');e.add_argument('--run',type=Path,required=True);e.add_argument('--id',required=True)
     v=sub.add_parser('validate',help='Validate artifacts and evidence references');v.add_argument('--run',type=Path,required=True)
+    ev=sub.add_parser('evaluate',help='Score independent evidence-ID ground truth after a completed run');ev.add_argument('--run',type=Path,required=True);ev.add_argument('--truth',type=Path,required=True)
+    su=sub.add_parser('summary',help='Read the clean end-of-run summary');su.add_argument('--run',type=Path,required=True)
+    ca=sub.add_parser('cancel',help='Request graceful cancellation');ca.add_argument('--run',type=Path,required=True)
+    me=sub.add_parser('metrics',help='Read saved runtime and resource metrics');me.add_argument('--run',type=Path,required=True)
+    ra=sub.add_parser('raw',help='Read bounded raw evidence from a registered input file');ra.add_argument('--run',type=Path,required=True);ra.add_argument('--file-id',required=True);ra.add_argument('--offset',type=int,required=True);ra.add_argument('--lines',type=int,default=1)
     r=sub.add_parser('review',help='Optional bounded AI review of saved incidents');r.add_argument('--run',type=Path,required=True);r.add_argument('--incident');add_config(r)
     return p
 
@@ -109,16 +124,40 @@ def main(argv=None):
                     if n>=args.limit:break
                 if n>=args.limit:break
             print(json.dumps({'files':len(files),'total_bytes':sum(p.stat().st_size for p in files),'sampled_records':n,'sample_parse_errors':errors,'sample':sample,'format':'per-record auto-detection: FortiGate key=value or ECS JSON lines'},indent=2));return 0
+        if args.command=='evaluate':
+            from .evaluate import evaluate
+            print(json.dumps(evaluate(args.run,args.truth),indent=2));return 0
+        if args.command in {'summary','metrics'}:
+            print(json.dumps(load_json(args.run/('summary.v1.json' if args.command=='summary' else 'metrics.v1.json')),indent=2));return 0
+        if args.command=='cancel':
+            if not (args.run/'progress.v1.json').is_file():raise ValueError('Unknown run')
+            if load_json(args.run/'progress.v1.json')['status']!='running':raise ValueError('Run is not running')
+            (args.run/'CANCEL').touch();print('Cancellation requested. Completed parse partitions will be preserved.');return 0
+        if args.command=='raw':
+            from .results import raw_evidence
+            print(json.dumps(raw_evidence(args.run,args.file_id,args.offset,args.lines),indent=2));return 0
         if args.command=='analyze':
             from .pipeline import analyze
             config=resolve_config(args.config,config_overrides(args),args.output)
             if not args.quiet:console.print('Selected resources: '+json.dumps({k:config[k] for k in ['selected_profile','memory_gb','threads','batch_records','spill_gb']}),markup=False)
             def progress(p):
                 if not args.quiet:console.print(f"{p['phase']}: {p['processed_bytes']:,}/{p['total_bytes']:,} bytes | {p['records_parsed']:,} parsed | {p['malformed_records']:,} rejected | {p['incidents_found']:,} candidates",markup=False)
-            result=analyze(args.input,args.output,args.job_id or args.output.name,config,progress)
+            result=analyze(args.input,args.output,args.job_id or args.output.name,config,progress,resume=args.resume)
             if config['ai_provider']!='none':
-                from .ai import review_run
-                result['ai_review']=review_run(args.output,config)
+                # AI is always a separate process; failures/quota never delay core completion.
+                import subprocess
+                entry=Path(__file__).resolve().parents[1]/'engine.py'
+                command=[sys.executable,str(entry),'review','--run',str(args.output.resolve()),
+                    '--ai-provider',config['ai_provider'],'--ai-model',config['ai_model'],
+                    '--ai-max-reviews',str(config['ai_max_reviews'])]
+                if args.config:command+=['--config',str(args.config.resolve())]
+                try:
+                    with (args.output/'ai_worker.log').open('ab') as log:
+                        worker=subprocess.Popen(command,stdout=log,stderr=log,start_new_session=True)
+                    result['ai_review']={'status':'background','pid':worker.pid}
+                except OSError:
+                    result['ai_review']={'status':'unavailable','reason':'Could not start optional AI worker; baseline complete.'}
+            result=load_json(args.output/'summary.v1.json')|({'ai_review':result['ai_review']} if 'ai_review' in result else {})
             print(json.dumps(result,default=iso));return 0
         if args.command=='incidents':
             import duckdb
@@ -129,7 +168,7 @@ def main(argv=None):
             con=duckdb.connect()
             try:
                 con.execute("SET memory_limit='256MB'");con.execute('SET threads=1')
-                sort={'id':'incident_id','time':'first_seen,incident_id','severity':"CASE severity WHEN 'high' THEN 0 ELSE 1 END,first_seen,incident_id"}[args.sort]
+                sort={'priority':'priority_score DESC,first_seen,incident_id','id':'incident_id','time':'first_seen,incident_id','severity':"CASE severity WHEN 'high' THEN 0 ELSE 1 END,first_seen,incident_id"}[args.sort]
                 cur=con.execute('SELECT * FROM read_json_auto(?) ORDER BY '+sort+' LIMIT ? OFFSET ?',[str(args.run/'incidents.v1.jsonl'),args.limit,args.offset])
                 cols=[c[0] for c in cur.description];rows=[dict(zip(cols,r)) for r in cur.fetchall()]
             finally:con.close()

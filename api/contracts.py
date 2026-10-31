@@ -92,6 +92,11 @@ class Incident(Contract):
     kill_chain: list[str] | list[dict[str, str]] = Field(default_factory=list)
     data_quality_impact: list[str] = Field(default_factory=list)
     engine_review: dict | None = None
+    enrichments: list[dict] = Field(default_factory=list)
+    response_playbook: list[dict] = Field(default_factory=list)
+    priority_basis: str | None = None
+    total_step_count: int | None = Field(default=None,ge=0)
+    steps_truncated: bool = False
 
     @model_validator(mode="after")
     def references(self):

@@ -55,9 +55,11 @@ Endpoint process and registry rules remain available only when those fields are 
 
 ## Current engine/application checks
 
-- 83 combined automated tests passed after the evidence review, session grouping and adapter updates.
+- 94 combined automated tests passed after the evidence review, session grouping and adapter updates.
 - The official 10,000-record prefix imports as 473 candidate investigations; path, evidence, reachability and report endpoints returned successfully.
-- A fresh engine run writes clean briefs under `engine/runs/official-prefix-v2/briefs/`.
+- A fresh engine run writes clean briefs under the current run’s `briefs.v1.jsonl`.
 - Automatic session association requires observer, session identifier and network tuple in a five-minute bucket. It is not a causal attack claim; boundaries can split a real session.
 - Optional AI review receives bounded primary and neighboring detected evidence, validates references, caches responses and preserves baseline findings. Live model quality is unmeasured.
 - The adapter preserves step edges, typed empty access tables, actual source size and complete AI review metadata. It does not manufacture access rights or permission validity windows.
+
+Latest scale/correctness checks are documented in [VALIDATION.md](VALIDATION.md). Full 30/50 GB runs remain unverified.

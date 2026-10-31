@@ -23,5 +23,15 @@
   "input_format": "auto",
   "fail_on_binary": true,
   "recover_valid_prefix": false,
-  "preflight_audit": true
+  "preflight_audit": true,
+  "parse_workers": null,
+  "chunk_mb": 64,
+  "total_memory_gb": null,
+  "timeout_seconds": 0,
+  "disk_estimate_multiplier": 2.5,
+  "repeat_window_minutes": 5,
+  "asset_map": [],
+  "allowlist": [],
+  "indicator_snapshot": null,
+  "playbook_snapshot": null
 }

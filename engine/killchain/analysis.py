@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 from .common import sql_string, atomic_json, digest, iso, CONTRACT
+from .enrichment import match_records,response_cards
 
 RULES = {
  'firewall_ips_alert': {'technique_id':None,'name':None,'tactic':None,'severity':'high','summary':'Firewall recorded an intrusion-prevention signature','basis':'upstream_security_event','limitation':'Signature detection is recorded; successful exploitation is not established.'},
@@ -14,8 +15,8 @@ RULES = {
  'failures_then_success': {'technique_id':'T1110','name':'Brute Force','tactic':'Credential Access','severity':'high','summary':'Repeated authentication failures followed by a success','basis':'temporal_sequence','limitation':'Sequence is observed; unauthorized credential use remains an interpretation.'},
 }
 
-def prepare(con,run,progress):
-    raw=str(run/'staging/*.parquet')
+def prepare(con,run,progress,config=None):
+    raw=str(run/'staging/*/part-*.parquet')
     con.execute(f'CREATE VIEW staged AS SELECT * FROM read_parquet({sql_string(raw)})')
     progress['phase']='normalizing';progress.publish()
     con.execute('CREATE TABLE events AS SELECT * EXCLUDE (_rn) FROM (SELECT *, row_number() OVER (PARTITION BY evidence_id ORDER BY source_file, byte_offset) AS _rn FROM staged) WHERE _rn=1')
@@ -24,6 +25,32 @@ def prepare(con,run,progress):
     progress['unique_records']=unique
     con.execute('CREATE TABLE conflicting_event_ids AS SELECT original_event_id, count(*) AS variants FROM events WHERE original_event_id IS NOT NULL GROUP BY original_event_id HAVING count(*)>1')
     progress['conflicting_event_ids']=con.execute('SELECT count(*) FROM conflicting_event_ids').fetchone()[0]
+    # SQL joins resolve only identities explicitly asserted by the operator.
+    config=config or {'asset_map':[],'allowlist':[]}
+    con.execute('CREATE TABLE asset_aliases(alias VARCHAR,host VARCHAR,criticality DOUBLE)')
+    con.execute('CREATE TABLE asset_ips(ip VARCHAR,host VARCHAR,criticality DOUBLE)')
+    for asset in config['asset_map']:
+        aliases={asset['host'].casefold(),*(x.casefold() for x in asset.get('aliases',[]))}
+        con.executemany('INSERT INTO asset_aliases VALUES (?,?,?)',[(a,asset['host'],asset.get('criticality',0)) for a in sorted(aliases)])
+        if asset.get('ips'):con.executemany('INSERT INTO asset_ips VALUES (?,?,?)',[(ip,asset['host'],asset.get('criticality',0)) for ip in asset['ips']])
+    con.execute('CREATE TABLE allowlist_entries(field VARCHAR,value VARCHAR,reason VARCHAR)')
+    if config['allowlist']:con.executemany('INSERT INTO allowlist_entries VALUES (?,?,?)',[(item['field'],item['value'],item['reason']) for item in config['allowlist']])
+    con.execute('''CREATE TABLE resolved AS SELECT e.* REPLACE (coalesce(a.host,i.host,e.host_name) AS host_name),
+       coalesce(a.criticality,i.criticality,0) AS asset_criticality,
+       CASE WHEN a.host IS NOT NULL OR i.host IS NOT NULL THEN 'operator_static_asset_map' ELSE 'source_record' END AS identity_basis,
+       coalesce(ah.reason,aa.reason,asrc.reason,adst.reason,ap.reason) AS known_benign_reason
+       FROM events e LEFT JOIN asset_aliases a ON lower(e.host_name)=a.alias
+       LEFT JOIN asset_ips i ON coalesce(e.host_ip,CASE WHEN e.record_format='fortigate_kv' AND e.firewall_type!='event' THEN e.source_ip END)=i.ip
+       LEFT JOIN (SELECT value,reason FROM allowlist_entries WHERE field='host_name') ah ON ah.value=coalesce(a.host,i.host,e.host_name)
+       LEFT JOIN (SELECT value,reason FROM allowlist_entries WHERE field='account_id') aa ON aa.value=e.account_id
+       LEFT JOIN (SELECT value,reason FROM allowlist_entries WHERE field='source_ip') asrc ON asrc.value=e.source_ip
+       LEFT JOIN (SELECT value,reason FROM allowlist_entries WHERE field='destination_ip') adst ON adst.value=e.destination_ip
+       LEFT JOIN (SELECT value,reason FROM allowlist_entries WHERE field='process_name') ap ON ap.value=e.process_name''')
+    con.execute('DROP TABLE events');con.execute('ALTER TABLE resolved RENAME TO events')
+    progress['allowlisted_records']=con.execute('SELECT count(*) FROM events WHERE known_benign_reason IS NOT NULL').fetchone()[0]
+    # Order quality is measured globally across workers/files, not by summing local counters.
+    progress['out_of_order_records']=con.execute('''SELECT count(*) FROM (SELECT timestamp,
+        lag(timestamp) OVER (PARTITION BY source_file ORDER BY byte_offset) AS previous FROM events) WHERE timestamp<previous''').fetchone()[0]
     normalized=run/'normalized';normalized.mkdir()
     con.execute(f'COPY events TO {sql_string(normalized/"events.parquet")} (FORMAT PARQUET, COMPRESSION ZSTD)')
     con.execute('DROP VIEW staged')
@@ -40,6 +67,10 @@ def detect(con,run,config,progress):
     add('autorun_script',"event_category='registry' AND contains(lower(registry_path), 'currentversion') AND (contains(lower(registry_path), '\\run\\') OR ends_with(lower(registry_path), '\\run') OR contains(lower(registry_path), '\\runonce\\')) AND lower(process_name) IN ('powershell.exe','pwsh.exe','wscript.exe','cscript.exe')")
     add('reported_failures',f"event_category='authentication' AND reported_failed_count >= {config['failure_threshold']}")
     add('reported_renames',f"event_category='file' AND event_action='file_rename' AND reported_rename_count >= {config['reported_rename_threshold']}")
+    from .enrichment import load_indicators
+    snapshot=load_indicators(config['indicator_snapshot'])
+    con.execute('CREATE TABLE snapshot_indicators(kind VARCHAR,value VARCHAR)')
+    if snapshot and snapshot['indicators']:con.executemany('INSERT INTO snapshot_indicators VALUES (?,?)',[(i['type'],i['value']) for i in snapshot['indicators']])
     ips=list(config['indicator_ips']); domains=[x.lower().rstrip('.') for x in config['indicator_domains']]
     if config['demo_indicators']:
         ips+=['198.51.100.23','203.0.113.57','192.0.2.88']
@@ -47,6 +78,7 @@ def detect(con,run,config,progress):
     predicates=[]
     if ips: predicates.append('destination_ip IN ('+','.join(sql_string(x) for x in ips)+')')
     if domains: predicates.append("rtrim(lower(destination_domain),'.') IN ("+','.join(sql_string(x) for x in domains)+')')
+    if snapshot:predicates.append("EXISTS (SELECT 1 FROM snapshot_indicators s WHERE (s.kind='ip' AND s.value IN (source_ip,destination_ip)) OR (s.kind='domain' AND s.value=rtrim(lower(destination_domain),'.')))")
     if predicates: add('configured_destination',"event_category='network' AND ("+' OR '.join(predicates)+')')
     window=config['failure_window_minutes'];threshold=config['failure_threshold']
     con.execute(f'''CREATE TABLE auth_counts AS
@@ -80,7 +112,8 @@ def detect(con,run,config,progress):
     progress['phase']='correlating';progress.publish()
     # Group only explicit process identity or conservative observer-scoped session membership.
     # A missing identity yields an individual investigation, not host/time-based invented continuity.
-    con.execute('''CREATE TABLE findings AS SELECT
+    repeat_minutes=config['repeat_window_minutes']
+    con.execute(f'''CREATE TABLE findings AS SELECT
        'inc_' || substr(sha256(CASE WHEN e.process_entity_id IS NOT NULL AND e.host_name IS NOT NULL
           THEN 'process|'||e.host_name||'|'||e.process_entity_id
           WHEN e.network_session_id IS NOT NULL AND e.observer_id IS NOT NULL
@@ -88,9 +121,12 @@ def detect(con,run,config,progress):
           THEN 'session|'||to_json(struct_pack(observer:=e.observer_id,session:=e.network_session_id,
             src:=e.source_ip,dst:=e.destination_ip,sport:=e.source_port,dport:=e.destination_port,
             proto:=e.network_protocol,time_bucket:=floor(epoch(e.timestamp)/300)))
+          WHEN e.record_format='fortigate_kv' AND e.firewall_type='utm' AND e.source_ip IS NOT NULL AND e.destination_ip IS NOT NULL
+          THEN 'repeats|'||to_json(struct_pack(observer:=e.observer_id,src:=e.source_ip,dst:=e.destination_ip,
+            signature:=e.signature_name,rule:=d.rule_id,time_bucket:=floor(epoch(e.timestamp)/({repeat_minutes}*60))))
           ELSE 'event|'||e.evidence_id END),1,24) AS incident_id,
        'det_' || substr(sha256(d.evidence_id||'|'||d.rule_id),1,24) AS detection_id,
-       d.evidence_id,d.rule_id,d.supporting_count,e.timestamp,e.host_name,e.account_id,e.process_entity_id
+       d.evidence_id,d.rule_id,d.supporting_count,e.timestamp,e.host_name,e.account_id,e.process_entity_id,e.asset_criticality,e.known_benign_reason
        FROM detections d JOIN events e USING(evidence_id)''')
     con.execute('''CREATE TABLE incident_summaries AS SELECT incident_id,
       min(timestamp) AS first_seen,max(timestamp) AS last_seen,count(*) AS detection_count,
@@ -116,7 +152,10 @@ def export_results(con,run,config,job_id,progress):
       TO {sql_string(run/'access_history/authentication.parquet')} (FORMAT PARQUET, COMPRESSION ZSTD)''')
     con.execute(f'COPY (SELECT DISTINCT host_name,host_ip,timestamp AS observed_at,evidence_id FROM events WHERE host_name IS NOT NULL AND host_ip IS NOT NULL) TO {sql_string(run/"access_history/host_observations.parquet")} (FORMAT PARQUET, COMPRESSION ZSTD)')
     con.execute(f'COPY findings TO {sql_string(run/"findings.parquet")} (FORMAT PARQUET, COMPRESSION ZSTD)')
-    cursor=con.cursor().execute("""SELECT f.detection_id,f.rule_id,f.supporting_count,f.incident_id,e.*
+    from .enrichment import load_indicators,load_playbooks
+    enrichment=load_indicators(config['indicator_snapshot']);playbooks=load_playbooks(config['playbook_snapshot'])
+    lookup=con.cursor()
+    cursor=con.execute("""SELECT f.detection_id,f.rule_id,f.supporting_count,f.incident_id,e.*
        FROM findings f JOIN events e USING(evidence_id)
        ORDER BY f.incident_id,e.timestamp,e.evidence_id,f.rule_id""")
     columns=[x[0] for x in cursor.description]
@@ -126,8 +165,9 @@ def export_results(con,run,config,job_id,progress):
     from itertools import groupby
     with (run/'incidents.v1.jsonl').open('w',encoding='utf-8') as out:
         for iid,group in groupby(records(),lambda r:r['incident_id']):
-            preview=[];count=0;first=None;last=None;severity='medium';multi=False;initial=None
+            preview=[];count=0;first=None;last=None;severity='medium';multi=False;initial=None;criticality=0;all_benign=True
             for r in group:
+                criticality=max(criticality,r.get('asset_criticality',0));all_benign=all_benign and bool(r.get('known_benign_reason'))
                 count+=1;first=r['timestamp'] if first is None else first;last=r['timestamp']
                 if initial is None: initial=r['evidence_id']
                 elif r['evidence_id']!=initial: multi=True
@@ -136,13 +176,18 @@ def export_results(con,run,config,job_id,progress):
             summary={'incident_id':iid,'job_id':job_id,'revision':1,'first_seen':iso(first),'last_seen':iso(last),
                      'detection_count':count,'merged_alert_count':count,'severity':severity,
                      'incident_kind':'related_activity' if multi else 'single_finding',
-                     'bundle_path':f'incidents/{iid}.json'}
-            atomic_json(run/summary['bundle_path'],make_bundle(con,iid,summary,config,preview))
+                     'bundle_path':f'incidents/{iid}.json',
+                     'priority_score':min(100,max(0,(80 if severity=='high' else 50)+
+                         min(10,count//5)+criticality*.1-
+                         (25 if all_benign else 0))),
+                     'priority_basis':'Severity + capped linked-finding count + configured asset criticality; known-benign matches reduce priority. Not a compromise probability.'}
+            atomic_json(run/summary['bundle_path'],make_bundle(lookup,iid,summary,config,preview,enrichment,playbooks))
             out.write(json.dumps(summary)+'\n')
             progress.publish()
 
+    lookup.close()
 
-def make_bundle(con,iid,summary,config,rows_override=None):
+def make_bundle(con,iid,summary,config,rows_override=None,enrichment=None,playbooks=None):
     cap=config['max_incident_steps']
     if rows_override is None:
         cursor=con.execute("""SELECT f.detection_id,f.rule_id,f.supporting_count,e.* FROM findings f
@@ -203,9 +248,14 @@ def make_bundle(con,iid,summary,config,rows_override=None):
     return {'contract_version':CONTRACT,**summary,'title':('Related suspicious activity' if summary['incident_kind']=='related_activity' else 'Single suspicious finding'),
       'entities':list(entities.values()),'techniques':list(techniques.values()),'steps':steps,'edges':edges,
       'steps_truncated':summary['detection_count']>cap,'total_step_count':summary['detection_count'],
+      'enrichments':match_records(rows_override,enrichment),
+      'response_playbook':response_cards(techniques,playbooks,steps),
       'stage_taxonomy':'unconfirmed; ATT&CK tactics supplied separately',
       'uncertainties':['Candidate investigation, not a confirmed attack. No inferred missing attack steps.',
         'Multi-event groups require a host-scoped process identity or an observer-scoped network session and tuple within one five-minute bucket. Session groups can split at bucket boundaries and do not prove causality.',
-        'Presentation tie-breaks do not imply causal order.'],
+        'Presentation tie-breaks do not imply causal order.',
+        'Repeated matching firewall alerts may share an alert group; this does not prove a multi-stage attack.',
+        'Configured asset mappings assert static identities; DHCP/IP reassignment requires time-qualified inventory.',
+        'Known-benign configuration changes priority only; findings remain visible.'],
       'ai_review':{'status':'not_requested'},'evidence_path':'evidence/incident_evidence.parquet',
       'all_steps_query':'Find all detections for this incident in findings.parquet; bounded bundle is a preview.'}
