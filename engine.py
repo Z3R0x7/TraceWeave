@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 import httpx
 from pydantic import BaseModel,ConfigDict,Field,ValidationError
+from pydantic_core import to_json
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT/'vendor/LateralX'))
 from backend.analysis.storyline import _classify
@@ -26,6 +27,8 @@ class Span:
     record: int
     data: bytes | None
     reason: str | None = None
+    digest: str | None = None
+    known_id: int | None = None
 
 def spans(path, stats, on_read=None):
     """Split NUL runs without materializing them; a post-hole fragment is never promoted to a record."""
@@ -45,6 +48,7 @@ def spans(path, stats, on_read=None):
             if on_read:
                 on_read(stats['bytes_read'])
             at = 0
+            nul = block.find(b'\x00')
             while at < len(block):
                 if hole is not None:
                     end = at
@@ -59,7 +63,8 @@ def spans(path, stats, on_read=None):
                     hole = None
                     start = offset
                     after_hole = True
-                nul = block.find(b'\x00', at)
+                if nul >= 0 and nul < at:
+                    nul = block.find(b'\x00', at)
                 nl = block.find(b'\n', at)
                 candidates = [n for n in (nul, nl) if n >= 0]
                 end = min(candidates) if candidates else len(block)
@@ -111,13 +116,15 @@ def parse_fortigate(line):
     raw = {}
     pos = 0
     for m in TOKEN.finditer(line):
-        if line[pos:m.start()].strip():
+        if m.start() != pos and line[pos:m.start()].strip():
             raise ValueError('invalid FortiGate token')
         key, value = m.groups()
         if key in raw:
             raise ValueError('duplicate FortiGate key')
-        if value.startswith('"'):
-            value = value[1:-1].replace('\\"', '"').replace('\\\\', '\\')
+        if value[0] == '"':
+            value = value[1:-1]
+            if '\\' in value:
+                value = value.replace('\\"', '"').replace('\\\\', '\\')
         raw[key] = value
         pos = m.end()
     if line[pos:].strip() or not raw or 'date' not in raw:
@@ -151,9 +158,10 @@ def parse_fortigate(line):
 def get(raw, *paths):
     for path in paths:
         v = raw.get(path)
-        if v is None:
-            v = raw
-            for part in path.split('.'):
+        if v is None and '.' in path:
+            parts = path.split('.')
+            v = raw.get(parts[0])
+            for part in parts[1:]:
                 if not isinstance(v, dict):
                     v = None
                     break
@@ -178,7 +186,27 @@ def timestamp(value):
     except (ValueError, OverflowError):
         return None
 
+_FW_META_EXTRA = frozenset(('relationship_type','host','host.name','Computer','hostname','source_host','user.name','SubjectUserName','SubjectDomainName','TargetDomainName','user.domain','source','source.ip','IpAddress','destination','destination.ip','DestinationIp','source.host.name','source_host.name','SourceWorkstation','event','event.code','event.action','EventID','event_id','winlog','winlog.event_id','winlog.event_data.SubjectUserName','winlog.event_data.TargetDomainName','winlog.event_data.SubjectDomainName','winlog.event_data.IpAddress','winlog.event_data.WorkstationName','winlog.event_data.SubjectLogonId','winlog.event_data.TargetLogonId','SubjectLogonId','TargetLogonId','logon','logon.id','source.bytes','winlog.event_data.LogonType','LogonType','logon.type'))
+
+def firewall_metadata(raw, e):
+    host = e.get('host', '')
+    kind = e.get('kind', 'other')
+    user = lower(e.get('account') or e.get('proc', {}).get('user')) or lower(raw.get('user'))
+    src, dst = raw.get('srcip') or '', raw.get('dstip') or ''
+    observer = lower(raw.get('devid') or raw.get('devname'))
+    target = host if kind in ('logon', 'logon_failed') else ''
+    guid = lower(e.get('proc', {}).get('guid'))
+    actor = f'g:{host}:{guid}' if guid and host else e.get('actor', '')
+    session = raw.get('sessionid', '')
+    session_key = dump([observer, raw.get('vd', ''), session, src, raw.get('srcport', ''), dst, raw.get('dstport', ''), raw.get('proto', '')]) if session and src and dst else ''
+    auth_key = dump([observer or target, user, src]) if user and (observer or target) and src else ''
+    action = lower(raw.get('action'))
+    outcome = 'blocked' if action in ('deny', 'denied', 'drop', 'dropped', 'blocked', 'reset') else 'allowed' if action in ('accept', 'pass', 'passthrough', 'allow', 'allowed') else 'unknown'
+    return dict(t=e.get('t'), kind=kind, host=target, user=user, src=src, dst=dst, source_host='', observer=observer, actor=actor, logon_key='', session_key=session_key, auth_key=auth_key, action=action, outcome=outcome, code='', signature=str(raw.get('attack') or raw.get('virus') or ''), subtype=raw.get('subtype', ''), timestamp_conflict=bool(raw.get('_timestamp_delta_seconds')), bytes_out=int(raw.get('sentbyte') or 0), logon_type='')
+
 def event_metadata(raw, e):
+    if e and '_canonical' in raw and _FW_META_EXTRA.isdisjoint(raw) and all(isinstance(raw.get(k, ''), str) for k in ('srcip','dstip','user')):
+        return firewall_metadata(raw, e)
     firewall = '_canonical' in raw
     t = e.get('t') if e else timestamp(get(raw, '@timestamp', 'timestamp', 'UtcTime', 'TimeCreated'))
     kind = e.get('kind', 'other') if e else 'other'
@@ -530,7 +558,7 @@ def evaluate_packet(packet, request):
 
 
 def dump(v):
-    return json.dumps(v, separators=(',', ':'), ensure_ascii=True)
+    return to_json(v, ensure_ascii=True).decode('utf-8')
 
 def atomic(path, value):
     tmp = path.with_suffix(path.suffix + '.tmp')
@@ -546,7 +574,7 @@ def rules_config(path):
         raise ValueError('incident preview cannot exceed 500 steps')
     return rules
 
-def parsed(path, readstats, on_read):
+def parsed(path, readstats, on_read, identify=None):
     """Yield decoded records or rejected spans. CSV records retain exact source byte ranges."""
     stream = spans(path, readstats, on_read)
     if path.suffix.lower() == '.csv':
@@ -588,6 +616,11 @@ def parsed(path, readstats, on_read):
         if span.reason:
             yield (span, None, span.reason)
             continue
+        if identify is not None:
+            span.digest, span.known_id = identify(span.data)
+            if span.known_id is not None:
+                yield (span, None, None)
+                continue
         try:
             value = span.data.decode('utf-8-sig')
             if not value.strip():
@@ -635,6 +668,8 @@ def analyze(inputs, out, batch_records=2048, corrupt_policy='skip', rules_path=N
             paths[index] = snapshot
     db = sqlite3.connect(out / 'analysis.sqlite')
     schema(db)
+    db.execute('PRAGMA cache_size=-262144')
+    db.execute('PRAGMA wal_autocheckpoint=16384')
     run_id = run_id or 'fusion_' + uuid.uuid4().hex[:24]
     if not __import__('re').fullmatch('[A-Za-z0-9_-]{1,120}', run_id):
         raise ValueError('invalid run ID')
@@ -643,12 +678,18 @@ def analyze(inputs, out, batch_records=2048, corrupt_policy='skip', rules_path=N
     last_update = 0
     phase = 'starting'
     completed_bytes = 0
+    phase_seconds = {}
+    measured_phase = phase
+    phase_started = started
 
     def progress(force=False):
-        nonlocal last_update
+        nonlocal last_update, measured_phase, phase_started
         now = time.monotonic()
+        if phase != measured_phase:
+            phase_seconds[measured_phase] = phase_seconds.get(measured_phase, 0) + now - phase_started
+            measured_phase, phase_started = phase, now
         if force or now - last_update >= 0.5:
-            state.update(phase=phase, elapsed_seconds=now - started)
+            state.update(phase=phase, elapsed_seconds=now - started, phase_seconds={**phase_seconds, measured_phase: phase_seconds.get(measured_phase, 0) + now - phase_started})
             atomic(out / 'progress.json', state)
             last_update = now
             if not quiet:
@@ -658,37 +699,42 @@ def analyze(inputs, out, batch_records=2048, corrupt_policy='skip', rules_path=N
     batch = []
     batch_bytes = 0
     next_id = 0
+    last_commit = time.monotonic()
 
     def flush():
-        nonlocal batch, batch_bytes
+        nonlocal batch, batch_bytes, last_commit
         if not batch:
             return
-        proc.stdin.write(dump(batch) + '\n')
+        worker_batch = [dict(r, raw={'_canonical': r['raw']['_canonical']}) if '_canonical' in r['raw'] else r for r in batch]
+        proc.stdin.write(dump(worker_batch) + '\n')
         proc.stdin.flush()
         reply = proc.stdout.readline()
         if not reply:
             raise RuntimeError('Jevline worker failed')
         result = json.loads(reply)
         byid = {e['evidence_id']: e for e in result['events']}
+        updates, event_rows = [], []
         for r in batch:
             e = byid.get(r['id'])
             m = event_metadata(r['raw'], e)
-            db.execute('UPDATE evidence SET normalized=?,actor=? WHERE id=?', (dump(e) if e else None, m['actor'], r['id']))
-            db.execute('INSERT INTO events VALUES(' + ','.join(('?' for _ in range(21))) + ')', (r['id'], *m.values()))
+            updates.append((dump(e) if e else None, m['actor'], r['id']))
+            event_rows.append((r['id'], *m.values()))
             if m['t'] is None or not any((m['host'], m['src'], m['dst'], m['user'])):
                 counts['missing_critical'] += 1
             if m['timestamp_conflict']:
                 counts['timestamp_conflicts'] += 1
             singles(db, r['id'], r['raw'], m, rules)
-        for n in result['nodes']:
-            db.execute('INSERT OR IGNORE INTO nodes VALUES(?,?)', (n['key'], dump(n)))
-        for l in result['links']:
-            db.execute('INSERT INTO links(source,target,type,evidence,data) VALUES(?,?,?,?,?)', (l['from'], l['to'], l['type'], dump(l['evidence']), dump(l)))
+        db.executemany('UPDATE evidence SET normalized=?,actor=? WHERE id=?', updates)
+        db.executemany('INSERT INTO events VALUES(' + ','.join('?' for _ in range(21)) + ')', event_rows)
+        db.executemany('INSERT OR IGNORE INTO nodes VALUES(?,?)', ((n['key'], dump(n)) for n in result['nodes']))
+        db.executemany('INSERT INTO links(source,target,type,evidence,data) VALUES(?,?,?,?,?)', ((l['from'], l['to'], l['type'], dump(l['evidence']), dump(l)) for l in result['links']))
         for k in ('unknown', 'other', 'untimed'):
             counts[k] += result['stats'][k]
         counts['normalized'] += len(byid)
         counts['batches'] += 1
-        db.commit()
+        if time.monotonic() - last_commit >= 2:
+            db.commit()
+            last_commit = time.monotonic()
         batch = []
         batch_bytes = 0
         progress()
@@ -703,7 +749,11 @@ def analyze(inputs, out, batch_records=2048, corrupt_policy='skip', rules_path=N
             def on_read(size):
                 state['processed_bytes'] = completed_bytes + size
                 progress()
-            for span, raw, reason in parsed(path, readstats, on_read):
+            def identify(data):
+                digest = hashlib.sha256(data.rstrip(b'\r\n')).hexdigest()
+                known = db.execute('SELECT id FROM evidence WHERE evidence_id=?', (digest,)).fetchone()
+                return digest, known[0] if known else None
+            for span, raw, reason in parsed(path, readstats, on_read, identify):
                 counts['records'] += 1
                 if reason:
                     counts['rejected'] += 1
@@ -715,16 +765,19 @@ def analyze(inputs, out, batch_records=2048, corrupt_policy='skip', rules_path=N
                     continue
                 counts['parsed'] += 1
                 counts['parsed_bytes'] += span.length
-                digest = hashlib.sha256(span.data.rstrip(b'\r\n')).hexdigest()
-                known = db.execute('SELECT id FROM evidence WHERE evidence_id=?', (digest,)).fetchone()
+                digest = span.digest or hashlib.sha256(span.data.rstrip(b'\r\n')).hexdigest()
+                known = (span.known_id,) if span.known_id is not None else None
+                if span.digest is None:
+                    known = db.execute('SELECT id FROM evidence WHERE evidence_id=?', (digest,)).fetchone()
                 if known:
                     counts['duplicates'] += 1
                     db.execute('INSERT INTO occurrences VALUES(?,?,?,?,?)', (known[0], file_id, span.record, span.offset, span.length))
                     continue
                 next_id += 1
-                db.execute('INSERT INTO evidence VALUES(?,?,?,?,?,?,?,?,?)', (next_id, file_id, span.record, dump(raw), None, None, digest, span.offset, span.length))
+                serialized_raw = dump(raw)
+                db.execute('INSERT INTO evidence VALUES(?,?,?,?,?,?,?,?,?)', (next_id, file_id, span.record, serialized_raw, None, None, digest, span.offset, span.length))
                 db.execute('INSERT INTO occurrences VALUES(?,?,?,?,?)', (next_id, file_id, span.record, span.offset, span.length))
-                payload = len(dump(raw))
+                payload = len(serialized_raw)
                 if batch and (len(batch) >= batch_records or batch_bytes + payload > 8 * 1024 * 1024):
                     flush()
                 batch.append(dict(id=next_id, file=file_id, line=span.record, raw=raw))
@@ -769,6 +822,11 @@ def analyze(inputs, out, batch_records=2048, corrupt_policy='skip', rules_path=N
         db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
         versions = UPSTREAM_VERSIONS
         manifest = dict(status='complete', run_id=run_id, incident_count=incident_count, coverage='partial' if counts['rejected_bytes'] else 'complete', counts=counts, source_bytes=state['total_bytes'], compressed_sources=compressed_sources, ai=ai, output_directory=str(out), rules=rules, versions=versions, seconds=time.monotonic() - started, python_peak_rss=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, worker_peak_rss=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss, limitations=['Rejected byte spans are excluded from analysis, never reconstructed.', 'ATT&CK techniques and Lockheed Martin phases are hypotheses, not proof of successful attacks.', 'Timestamp conflicts and equal times do not establish causal ordering.', 'Full analytical accuracy needs independent ground-truth evaluation.', 'Permissions and reachability require actual supplied evidence.'])
+        elapsed = time.monotonic() - started
+        rss_unit = 1 if sys.platform == 'darwin' else 1024
+        peak_bound = (manifest['python_peak_rss'] + manifest['worker_peak_rss']) * rss_unit
+        manifest['phase_seconds'] = {**phase_seconds, measured_phase: phase_seconds.get(measured_phase, 0) + time.monotonic() - phase_started}
+        manifest['performance'] = dict(elapsed_seconds=elapsed, combined_peak_upper_bound_bytes=peak_bound, memory_measurement='Sum of Python and single Node worker lifetime RSS maxima; conservative simultaneous-peak upper bound.', within_two_hours=elapsed <= 7200, within_8_gb=peak_bound < 8_000_000_000)
         atomic(out / 'summary.json', manifest)
         state.update(status='completed', phase='completed', ai=ai, output_directory=str(out), coverage=manifest['coverage'])
         phase = 'completed'

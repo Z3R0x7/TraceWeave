@@ -1,112 +1,61 @@
-# Log analysis engine
+# TraceWeave
 
-Standalone backend only. No UI, API server or app linking is required.
-Uses selected LateralX detection code and Jevline normalization/relationship code.
+Local security-log analysis and evidence-linked investigation. Python 3.12+ and Node 24+ are required. Uses selected LateralX classification and Jevline identity/relationship code; see [NOTICE.md](NOTICE.md).
 
-The proposed server/API integration is documented in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
-It is a plan; the integration is not implemented in this repository.
+## Start
 
-A separate local three-tab investigation prototype reads the synthetic fixture under
-`dummy-100mb-engine-output/`. See [website/README.md](website/README.md) for its data flow,
-AI report policy and run command. It does not change the core engine or deploy the server plan.
-
-## Stage 1 connection POC
-
-This checkout includes a deliberately small browser/API proof of concept. It checks the
-backend health endpoints and proves an authenticated nonce round trip; uploads, AI sessions,
-workers and result rendering are later plan stages.
+From this folder:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-export TRACEWEAVE_POC_TOKEN='use-a-local-test-token'
-.venv/bin/uvicorn api:app --reload --port 8000
+./start.command
 ```
 
-Open <http://127.0.0.1:8000/> and enter the same temporary token. The token is cleared from
-the form after the request and is not stored by the page. Run the focused check with:
+The launcher creates the Python environment and installs pinned dependencies on first use. Open **http://127.0.0.1:18505/** and keep the terminal open. On macOS, `start.command` can also be launched from Finder. Use `PORT=18506 ./start.command` if that port is occupied.
+
+This is a local single-user submission candidate. It is not a remotely authenticated multi-user deployment.
+
+## Analyze
+
+1. Check the readiness panel. Connect Groq/OpenAI using the masked session key form, or configure `.env` from `.env.example`. The session key is held only in backend memory and shared by analysis and report generation. Connecting makes one small provider health request. Keys never appear in reports or job records.
+2. Select raw logs, or enter their absolute server-local paths to avoid copying large files. Supported: FortiGate, JSONL/NDJSON, CSV and gzip. The supplied performance case is `/Users/mac/Documents/firex_logs/firex-10G.log` (6,543,120,032 actual bytes).
+3. Confirm bounded AI evidence sharing, then select **Analyze and investigate**. The whole source is processed locally; AI reviews selected packets, not every record. Packets may retain account names and IPs after sanitization. The default budget is ten packets, bounded by the engine's request limit.
+4. Follow measured phase/byte/record progress. The browser may be refreshed while analysis continues. Cancel analysis to terminate its Python/Node process group. Original inputs and partial results are retained.
+5. The completed output opens automatically. The engine and viewer retain separate failure states: an indexing failure does not erase a successful engine run. Reopen completed results from Run history.
+
+Raw browser uploads use bounded chunks and save offsets. After interruption, reselect the original files in the same order to resume; name, size and modification time must match. Uploaded copies live under `runs/website/`. A local source path is read directly. Jobs require estimated disk headroom of six times source size plus 3 GiB; real expansion can exceed that, especially for gzip. No arbitrary total source-size limit is imposed.
+
+## Investigate
+
+- **Attack path:** risk-ranked candidates, a synchronized timeline, entity graph and evidence inspector. Solid cyan = recorded observation; dashed amber = inferred association; dotted purple = conditional predicted exposure. Risk is a transparent triage heuristic, not compromise probability. Raw-record counts deduplicate repeated citations and exclude AI text; truncated previews show lower bounds.
+- **Possible next reach:** permission, session and network-policy evidence intersected at their stated validity time. Missing context stays unknown. `investigation-context.json` in the demo is invented; real investigations never inherit those permissions.
+- **Report:** downloadable cited evidence report. Optional AI drafting requires another explicit action, citation validation and a second support review. AI drafts remain unconfirmed and require analyst review.
+
+Open an existing result folder through **Existing engine output**. Required: `summary.json`, `evidence.jsonl`, and `incidents.jsonl` or `findings.jsonl`. Raw logs, `.env` and the large engine database are not uploaded by this picker. Result transfers are chunked; incident/evidence indexes are disk-backed and persist in `runs/viewer-cache/`. Completed indexes and risk rankings are reused on reopening the same artifacts. Source changes or viewer version changes invalidate the cache. Lists show up to 250 results per query; search is performed against the indexed candidates. Interrupted exports without incident rows are labelled uncorrelated previews.
+
+## Engine CLI
+
+The CLI still uses `.env`; it does not receive browser-session credentials.
 
 ```sh
-.venv/bin/python -m unittest tests/test_poc_api.py
-```
-
-## Run
-
-Python 3.12+ and Node 24+ are required. From the repository directory, prepare a fresh checkout:
-
-```sh
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-cp .env.example .env
+cp .env.example .env  # only if you do not already have one
 chmod 600 .env
+.venv/bin/python engine.py --input /absolute/path/your.log --output runs/my-analysis
 ```
 
-Skip copying `.env.example` if you already have a configured `.env`.
+Select a new output directory per run. Outputs include summary/progress, findings/incidents/evidence JSONL, AI reviews, source identities, rejected spans and `analysis.sqlite`. Retain source logs to verify exact byte/record locators. Invalid spans are counted and excluded; `--strict` stops instead. No missing bytes are reconstructed.
 
-1. Edit `.env` and paste your matching provider key. The file is private and gitignored.
+## Persistence and recovery
 
-```dotenv
-AI_PROVIDER=groq
-AI_MODEL=openai/gpt-oss-120b
-GROQ_API_KEY=your_key_here
-AI_MAX_PACKETS=10
-```
+Job records and logs are stored beneath `runs/website/`; no API key is persisted. Runtime credentials must be reconnected after restart. `.env` remains private and gitignored. The most recent valid investigation index is reopened on startup. An abruptly detached process is shown as detached and blocks duplicate analysis; the app does not kill an unverified historical PID. Stop/recover such a process through the original terminal before starting another. Normal terminal shutdown cancels app-owned analysis.
 
-For OpenAI, use `AI_PROVIDER=openai`, a supported Responses model ID in `AI_MODEL`,
-and `OPENAI_API_KEY`. No key is copied from the previous app.
+Keep the `runs/` folder between restarts. Back up completed source/output folders; do not delete active jobs or caches currently in use. There is no automatic destructive retention. Logs and artifacts can contain sensitive investigation data and should stay private.
 
-2. Run your supplied file:
+## Submission status
 
-```sh
-.venv/bin/python engine.py \
-  --input "/absolute/path/to/your.log" \
-  --output runs/firex-50g
-```
+Implemented: local analysis-to-investigation workflow, runtime AI configuration, chunked transfers, persisted job records, cancellation, cached result/risk indexes, three investigation tabs, cited reports, heuristic ranking and distinct raw-record counts.
 
-Choose a new output directory for each run. Repeat `--input` for multiple supplied files.
-AI is required and enabled by default: a missing key or failed provider health check
-stops the command before expensive ingestion. API keys are not printed or added to reports.
+**Acceptance testing is on hold at the user's request.** Recent changes have syntax checks only; no new engine benchmark or live-provider call was run for this release candidate. Detection/label/path accuracy, full-file performance, recovery behavior, packaging and all user flows still require acceptance before claiming a production-ready or competition-qualified release. No 10/10 rating is claimed.
 
-Supported inputs: FortiGate key/value logs, Windows/ECS-style JSONL/NDJSON, CSV, and gzip.
-The engine streams the file into disk-backed storage. Invalid spans are counted and
-excluded; use `--strict` to stop instead. Original files are unchanged; no missing data
-is reconstructed. Gzip is decoded into an output snapshot for exact decoded-byte locators.
+The existing 10k EDR sample is invalid and must not be used for validation. Dummy data is clearly marked synthetic. Full Core qualification requires a valid 15 GB dataset; the named 10G file's actual 6.543 GB size cannot establish that qualification.
 
-## Output
-
-| File | Contents |
-|---|---|
-| `summary.json` | Final counts, coverage, incidents, AI scope, token usage, timing and limits |
-| `progress.json` | Current phase and ingestion counters |
-| `findings.jsonl` | Rule findings and separately marked AI hypotheses, techniques and phases |
-| `incidents.jsonl` | Correlated candidate timelines, entities, supported links and AI proposals |
-| `evidence.jsonl` | Supporting source paths, checksums, record/byte locators and previews |
-| `ai_reviews.jsonl` | AI decisions, rejected-response reasons and packet fingerprints |
-| `rejected.jsonl` | Invalid source spans and reasons |
-| `analysis.sqlite` | Complete evidence, normalized metadata, findings and relationship membership |
-| `sources.json` | Input identities and checksums |
-
-Incident previews are bounded; full membership remains in SQLite and the findings export.
-Keep the input snapshots and output private: logs can contain sensitive information.
-
-## Detection and AI
-
-Rules identify endpoint patterns, upstream security signatures and global authentication
-bursts/failures-followed-by-success. Correlation uses recorded process identity, sessions
-and supported relationships across files. ATT&CK tactics and proposed Lockheed Martin
-phases are separate. Blocked observations do not prove successful exploitation.
-
-AI reviews selected high-priority candidates **and unflagged discovery windows**. Each
-packet contains at most six sanitized previews of 800 characters plus bounded facts and
-a technique catalog. IDs and quotes are checked; a second model pass reviews support.
-Accepted AI results remain hypotheses and cannot overwrite the rule findings.
-
-The complete file is parsed, but AI coverage is bounded by `AI_MAX_PACKETS` (default 10).
-The request budget is one health call plus twice that value, including retry attempts.
-Increasing the budget increases provider usage/cost; this is not exhaustive LLM inspection
-of every record. No 85–90% accuracy claim is made without matching held-out evaluation.
-
-No additional test cases are generated. Superseded helpers, debug logs and synthetic
-benchmarks were removed. Useful previous results are preserved separately under
-`../outputs/backend-fusion-previous-results`. Keep `bridge.ts`, `rules.json`, `vendor/`
-and the upstream notices alongside `engine.py`.
+See [PERFORMANCE_AND_APP_PLAN.md](PERFORMANCE_AND_APP_PLAN.md) for acceptance gates and [JURY_READINESS_REVIEW.md](JURY_READINESS_REVIEW.md) for the evidence gaps. The dedicated-server design remains in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).

@@ -1,28 +1,12 @@
 # Local investigation prototype
 
-One local workflow for raw-log analysis and investigation. It starts with
-`../dummy-100mb-engine-output` until a real run completes. Start from the repository root:
+Three tabs consuming `../dummy-100mb-engine-output`. Start from `backend-fusion`:
 
 ```sh
 .venv/bin/python website/server.py
 ```
 
-Open http://127.0.0.1:18502. Uses Python's standard-library HTTP server and vanilla JavaScript/SVG; no npm packages or CSS framework. Bind is loopback only. This is a local single-user application, not the dedicated-server deployment in `../IMPLEMENTATION_PLAN.md`.
-
-## Analyze logs end to end
-
-Choose up to 16 raw log files and click **Analyze and investigate**. The browser streams each
-file to a unique directory under `runs/website/`; the existing `engine.py` CLI then parses,
-normalizes, verifies, correlates and writes its normal output contract. The server validates
-that output with the same loader used for manual imports before switching the investigation.
-An upload or failed engine run never replaces the currently loaded dataset.
-
-The combined upload limit is 64 GiB. Free space must cover twice the selected input size plus
-1 GiB; compressed inputs may require more when decoded. Input copies, outputs and `engine.log` are retained for
-inspection; the application does not delete source files or runs. The engine still requires the
-configured `.env` AI provider and Node runtime. Progress is read from the engine's atomic
-`progress.json`. Reloading the page reconnects to an active analysis; an interrupted upload must
-be explicitly cancelled before another can start.
+Open http://127.0.0.1:18502. Uses Python's standard-library HTTP server and vanilla JavaScript/SVG; no npm packages or CSS framework. Bind is loopback only. This is a local single-user fixture viewer, not the dedicated-server deployment in `../IMPLEMENTATION_PLAN.md`.
 
 ## Data and feature flow
 
@@ -53,11 +37,6 @@ Raw context is synthetic and contains no secret fields; evidence previews are ca
 ## API (FR7)
 
 - `GET /api/bootstrap` — fixture summary, local request token and sharing policy.
-- `POST /api/analysis` — reserve one upload job from a bounded file manifest.
-- `PUT /api/analysis/{job}/files/{index}` — stream one exact-size raw log into that job.
-- `POST /api/analysis/start` — start the existing engine after every file is present.
-- `POST /api/analysis/cancel` — cancel an interrupted upload when no file write is active.
-- `GET /api/analysis` — upload/engine status and bounded progress counters.
 - `GET /api/incidents` — candidates sorted by descending risk, with record/finding counts.
 - `GET /api/incidents/{id}/path` — incident, timeline, graph, risk and conditional reach graph.
 - `GET /api/evidence/{id}` — source locator and synthetic preview, including supplemental context evidence.
@@ -65,13 +44,13 @@ Raw context is synthetic and contains no secret fields; evidence previews are ca
 
 ## Checks and remaining work
 
-Checked the fixture's byte locators/checksums, citation/graph references, sorted risk, all three uncertainty classes, positive permission/policy intersection, missing/expired permissions, merged record count, and real browser navigation/evidence/report generation. The focused bridge test covers filename containment, exact upload bytes, active-upload ownership, existing-engine invocation and automatic output activation. Live AI, large-file browser transfer and production deployment remain unverified.
+Checked the fixture's byte locators/checksums, citation/graph references, sorted risk, all three uncertainty classes, positive permission/policy intersection, missing/expired permissions, merged record count, and real browser navigation/evidence/report generation. No persistent test suite or extra benchmark data was added. Live AI and production deployment remain unverified.
 
 For real output, replace the fixture adapter with completed engine artifacts and a verified inventory/access-history contract. Preserve the distinction between observed evidence, inferred associations and predicted exposure. Do not copy the invented permissions into real investigations. The core engine and its FR1–FR4 behavior are unchanged by this prototype.
 
-## Load an existing engine-output folder
+## Choose an engine-output folder
 
-Open **Load an existing engine output instead**. Enter the absolute folder path on the computer running this server and click **Load folder**, or use the browser directory chooser. This fallback selects engine outputs, not a raw log to analyze. Opening a folder never calls AI or changes its source files.
+Use **Engine output folder** at the top of the page. Enter the absolute folder path on the computer running this server and click **Load folder**, or use the browser directory chooser. This selects engine outputs, not a raw log to analyze. Opening a folder never calls AI or changes its source files.
 
 Required: `summary.json`, `evidence.jsonl`, and `incidents.jsonl` or `findings.jsonl`. Optional: `investigation-context.json`. The import reads only these five allowed names; `.env`, databases and raw logs are excluded. A browser import transfers at most 32 MiB of those artifacts; use the local/server path for larger exports (256 MiB/file, 512 MiB total and 100,000 JSONL rows/file are the prototype limits). All files must be directly inside the chosen folder.
 
@@ -80,3 +59,17 @@ The viewer validates the new input before switching. Invalid imports retain the 
 Truncated incident step previews show the supporting raw-record count as a lower bound. Full rule counts use the incident's `total_rule_findings`. Unknown timestamps stay unknown, and AI-only candidates are supported. Reports identify the selected input as synthetic or imported. An optional live AI request now applies to the selected input; the report consent box must be checked again after switching data. No imported real data was sent to a provider during this change.
 
 This section supersedes the initial fixture-only loading behavior described above. The example fixture remains the startup default.
+
+## Large result imports (current behavior)
+
+The fixed 32 MiB browser, 256 MiB/file, 512 MiB/folder and 100,000-row rejection limits have been removed. Browser folder imports upload each artifact in 4 MiB chunks; server-path imports read JSONL incrementally. Incident/evidence/reference indexes use temporary disk-backed SQLite storage with bounded caches. Only the top 250 candidates are sent to the browser at once; this is a display bound, not a file-size restriction. The 4 MiB individual JSONL-record validation guard remains. Capacity depends on disk space, available memory for individual records and metadata, and import time; unlimited physical capacity is not claimed. Existing source artifacts are read-only. This supersedes the earlier size-limit descriptions.
+
+## Integrated local submission candidate (current)
+
+Start with `../start.command`; default port is now 18505. The root README is the authoritative startup guide. `jobs.py` adds persisted per-run records, chunk offsets/resume, direct server-local input, subprocess-group cancellation, history and safe recovery states. Browser-session AI credentials are verified on explicit connect, remain memory-only, and are shared by analysis/report requests. `.env` is the fallback.
+
+The viewer now persists incident/evidence indexes, risk rankings and the last selected dataset under `runs/viewer-cache/`. Reopening unchanged versioned results reuses the index. Search queries run against the stored candidate ranking rather than only filtering the first displayed page. An engine completion and viewer activation failure are distinct. Source `coverage: partial` is reflected in the dataset banner.
+
+Opening the report tab generates the deterministic evidence report automatically, without a model call. Live drafts still require explicit provider-sharing consent. Existing raw analysis uses the engine's bounded discovery/label review policy and requires consent in the analysis form.
+
+Testing is on hold. Only syntax checks were run for these integrated changes; do not interpret this implementation note as a passing end-to-end or performance result. Earlier measured checks in this document describe older code versions. See `../SUBMISSION.md` for the current feature/gate distinction.
