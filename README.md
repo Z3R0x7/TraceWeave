@@ -6,6 +6,10 @@ Uses selected LateralX detection code and Jevline normalization/relationship cod
 The proposed server/API integration is documented in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 It is a plan; the integration is not implemented in this repository.
 
+A separate local three-tab investigation prototype reads the synthetic fixture under
+`dummy-100mb-engine-output/`. See [website/README.md](website/README.md) for its data flow,
+AI report policy and run command. It does not change the core engine or deploy the server plan.
+
 ## Run
 
 Python 3.12+ and Node 24+ are required. From the repository directory, prepare a fresh checkout:

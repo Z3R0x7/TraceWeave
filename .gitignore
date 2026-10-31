@@ -6,4 +6,5 @@ __pycache__/
 runs/
 output/
 *.log
+!dummy-100mb-engine-output/sample-source.log
 .DS_Store
