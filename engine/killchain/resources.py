@@ -46,6 +46,10 @@ def resolve_config(config_path=None, overrides=None, workspace='.'):
         if unknown: raise ValueError('Unknown configuration keys: ' + ', '.join(sorted(unknown)))
         config.update(supplied)
     config.update({k:v for k,v in (overrides or {}).items() if v is not None})
+    if config['input_format'] not in {'auto','jsonl','fortigate'}: raise ValueError('Unsupported input_format')
+    for flag in ['recover_valid_prefix','preflight_audit']:
+        if not isinstance(config[flag],bool):raise ValueError(flag+' must be boolean')
+    if not isinstance(config['fail_on_binary'],bool): raise ValueError('fail_on_binary must be boolean')
     profile = config['profile']
     if profile not in {'auto', 'conservative', 'balanced', 'throughput'}: raise ValueError('Unknown profile')
     hw = hardware(workspace)

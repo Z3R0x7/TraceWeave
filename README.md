@@ -1,5 +1,9 @@
 # TraceWeave — Run Guide
 
+## Validation status
+
+The engine supports bounded-memory, disk-backed processing and configurable resources for larger files. Complete 30 GB and 50 GB runs have **not been validated**. Current real-data validation covers the first 10,000 official records; automated tests cover parsing, detection, correlation and application handoff. The supplied source contains unsupported binary data, so a full analysis requires a valid replacement or an explicitly partial recovery run.
+
 ## Requirements
 
 - Python 3.12 on Linux or macOS.
@@ -18,7 +22,21 @@ python3 engine.py
 
 No virtual environment is required. The script finds dependencies in `.deps` automatically. The interactive menu can check resources, inspect input, configure and analyze logs, list results, or display one incident. Hidden keys entered in the menu are held only for that process and are never saved.
 
-## Generate test logs
+## Primary official dataset
+
+The primary dataset is the hackathon-provided FortiGate-style `firex` log family. Copy or mount your official file privately; raw logs are not included in this repository.
+
+From `TraceWeave/engine`:
+
+```bash
+python3 engine.py audit --input /path/to/firex-10G.log
+python3 engine.py inspect --input /path/to/firex-10G.log
+python3 engine.py analyze --input /path/to/verified-firex.log --input-format fortigate --output runs/official
+```
+
+Use a new output directory per run. Default `auto` detects FortiGate records or ECS JSON per line. Unsupported binary input stops analysis explicitly rather than silently excluding an unknown section. Resolve the supplied file's binary sections and timestamp discrepancy before claiming a complete-tier run. See `engine/DATASET_POLICY.md` for validation status.
+
+## Generate secondary regression logs
 
 Run from `TraceWeave/engine`:
 
@@ -39,7 +57,7 @@ python3 engine.py show --run runs/sample --incident <incident-id-from-list>
 python3 engine.py validate --run runs/sample
 ```
 
-Replace `<incident-id-from-list>` with an actual ID. Each analysis requires a new output directory. Input is uncompressed, one ECS-like JSON object per line; arbitrary text logs, CEF, JSON arrays, and compressed files are not accepted.
+Replace `<incident-id-from-list>` with an actual ID. Each analysis requires a new output directory. Input is uncompressed FortiGate key=value records or ECS-like JSON lines. Other text formats, CEF, JSON arrays and compressed/binary input are not accepted.
 
 `--demo-indicators` enables only the supplied generator's synthetic test destinations. Omit it for other datasets; configure real indicators explicitly.
 
@@ -83,6 +101,12 @@ python3 engine.py review --run runs/sample --ai-provider openai --ai-model <avai
 
 Use the command for your configured provider. Missing keys or failed requests leave baseline findings usable. `.env.example` lists variable names; the script does not automatically load `.env` files. Do not commit credentials.
 
+Reviews examine up to 20 primary evidence records and 10 related candidate records within a five-minute window, subject to the configured input limit. Candidate retrieval uses shared hosts, accounts or source/destination pairs. It does not establish causality. Each suggested mapping and connection is checked against the evidence packet and the supplied technique reference. Responses are cached by packet/model; reviews never replace the baseline graph.
+
+Use `show` to read the explanation. Clean machine-readable summaries are saved in `runs/<run>/briefs/<incident-id>.json`; detailed records remain in `incidents/`. The brief separates observations, engine connections, AI suggestions, missing evidence and input coverage. Re-run the adapter into a **new handoff directory** after AI review to expose updated results in the UI. AI reviews automatically increase changed bundle revisions for re-import.
+
+For an explicitly partial analysis of a damaged file, add `--recover-valid-prefix` to `analyze`. This excludes everything from the damaged record onward and reports excluded bytes. It is not a complete-tier benchmark.
+
 ## Run with Docker
 
 From `TraceWeave/engine`:
@@ -103,7 +127,7 @@ Launch the engine as a background subprocess with an argument list:
 python3 engine.py analyze --input <dataset> --output <new-run-directory> --job-id <job-id> --quiet
 ```
 
-Read `progress.v1.json` during processing and `manifest.v1.json` after completion. The manifest points to incident summaries, individual incident bundles, evidence, and access-history outputs. See [engine/CONTRACT.md](engine/CONTRACT.md) and the JSON Schemas under `engine/contracts/` for exact inputs and outputs. The application can be added alongside the `engine/` directory.
+Read `progress.v1.json` during processing and `manifest.v1.json` after completion. The manifest points to incident summaries, individual incident bundles, evidence, and access-history outputs. See [engine/CONTRACT.md](engine/CONTRACT.md) and the JSON Schemas under `engine/contracts/` for exact inputs and outputs. Use the adapter below to translate these artifacts into the included application contract.
 
 ## Investigation Application (UI, FR-6 & Reporting)
 
@@ -123,15 +147,14 @@ docker compose up --build
 ### Run Locally with Python
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
+python3 -m pip install --target .app-deps -e '.[dev]'
+export PYTHONPATH="$PWD/.app-deps:$PWD/engine/.deps:$PWD"
 
 # Terminal 1: FastAPI Backend
-uvicorn api.main:app --host 127.0.0.1 --port 8000
+python3 -m uvicorn api.main:app --host 127.0.0.1 --port 8000
 
 # Terminal 2: Streamlit Frontend
-streamlit run ui/app.py --server.port=8501 --browser.gatherUsageStats=false
+python3 -m streamlit run ui/app.py --server.port=8501 --browser.gatherUsageStats=false
 ```
 
 ### Ingesting Engine Outputs
@@ -139,7 +162,7 @@ streamlit run ui/app.py --server.port=8501 --browser.gatherUsageStats=false
 To adapt an engine run into the application:
 
 ```bash
-python scripts/adapt_dumbo.py engine/runs/sample data/input/sample
+python scripts/adapt_engine.py engine/runs/sample data/input/sample
 ```
 
 Then on the web UI Import page, enter `sample/manifest.json`.

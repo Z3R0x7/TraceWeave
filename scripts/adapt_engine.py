@@ -1,15 +1,10 @@
-"""Adapt teammate engine output from ~/Downloads/dumbo into data/input/dumbo."""
+"""Stream a TraceWeave engine run into the investigation application contract."""
 
 import hashlib
 import json
-import os
-import sys
-from datetime import datetime, timedelta
 from pathlib import Path
 
-import pyarrow as pa
-import pyarrow.compute as pc
-import pyarrow.parquet as pq
+import duckdb
 
 
 def file_sha256(path: Path) -> str:
@@ -54,70 +49,31 @@ def adapt(source_dir: Path, target_dir: Path):
         }
     (target_dir / "quality.json").write_text(json.dumps(quality, indent=2))
 
-    # 2. Evidence Parquet
-    src_ev_path = source_dir / "evidence" / "incident_evidence.parquet"
-    ev_table = pq.read_table(src_ev_path)
-    
-    # Ensure record_locator exists
-    col_names = ev_table.column_names
-    cols = [ev_table.column(c) for c in col_names]
-    new_names = list(col_names)
-    if "record_locator" not in col_names:
-        if "raw_record_number" in col_names:
-            locators = [f"rec:{val.as_py()}" for val in ev_table.column("raw_record_number")]
-        else:
-            locators = [f"rec:{i}" for i in range(len(ev_table))]
-        new_names.append("record_locator")
-        cols.append(pa.array(locators, type=pa.string()))
-    
-    adapted_ev_table = pa.Table.from_arrays(cols, names=new_names)
-    pq.write_table(adapted_ev_table, target_dir / "evidence.parquet")
-
-    # 3. Access History Parquet
-    src_acc_path = source_dir / "access_history" / "authentication.parquet"
-    acc_table = pq.read_table(src_acc_path)
-    acc_rows = acc_table.to_pylist()
-    adapted_acc_rows = []
-    for i, r in enumerate(acc_rows):
-        obs = r.get("observed_at")
-        if isinstance(obs, int):
-            obs_dt = datetime.fromtimestamp(obs / 1000000, tz=datetime.now().astimezone().tzinfo)
-        elif isinstance(obs, datetime):
-            obs_dt = obs
-        else:
-            obs_dt = datetime.now().astimezone()
-        valid_from = obs_dt - timedelta(days=1)
-        valid_to = obs_dt + timedelta(days=30)
-        
-        target_host = r.get("target_host_name") or "unknown"
-        if not target_host.startswith("host:"):
-            target_host = f"host:{target_host}"
-        
-        principal = r.get("principal_id") or "account:unknown"
-        if not principal.startswith("account:"):
-            principal = f"account:{principal}"
-
-        source_ip = r.get("source_ip") or "127.0.0.1"
-        adapted_acc_rows.append({
-            "relationship_id": f"auth_rel_{i:06d}",
-            "principal_id": principal,
-            "source_host_id": f"host:{source_ip}",
-            "source_ip": source_ip,
-            "target_host_id": target_host,
-            "relationship_type": "successful_remote_auth",
-            "access_level": "user",
-            "observed_at": obs_dt.isoformat(),
-            "valid_from": valid_from.isoformat(),
-            "valid_to": valid_to.isoformat(),
-            "evidence_id": r.get("evidence_id") or f"auth_ev_{i}",
-            "source_file_id": r.get("source_file_id") or "auth_source",
-            "record_locator": f"offset:{r.get('byte_offset', i)}",
-        })
-    pq.write_table(pa.Table.from_pylist(adapted_acc_rows), target_dir / "access_history.parquet")
+    # Project on disk with bounded memory; preserve typed empty tables.
+    con=duckdb.connect()
+    con.execute("SET memory_limit='256MB'")
+    con.execute('SET threads=1')
+    def quoted(path):return "'"+str(path).replace("'","''")+"'"
+    try:
+        con.execute("COPY (SELECT *, 'offset:'||CAST(byte_offset AS VARCHAR) AS record_locator FROM read_parquet("+
+            quoted(source_dir/'evidence/incident_evidence.parquet')+")) TO "+quoted(target_dir/'evidence.parquet')+" (FORMAT PARQUET, COMPRESSION ZSTD)")
+        con.execute("""COPY (SELECT 'auth_'||evidence_id AS relationship_id,
+            CASE WHEN principal_id IS NOT NULL THEN 'account:'||principal_id END AS principal_id,
+            CAST(NULL AS VARCHAR) AS source_host_id, source_ip,
+            CASE WHEN target_host_name IS NOT NULL THEN 'host:'||target_host_name END AS target_host_id,
+            relationship_type, 'unknown' AS access_level, observed_at,
+            CAST(NULL AS TIMESTAMPTZ) AS valid_from, CAST(NULL AS TIMESTAMPTZ) AS valid_to,
+            evidence_id,source_file_id,'offset:'||CAST(byte_offset AS VARCHAR) AS record_locator
+            FROM read_parquet("""+quoted(source_dir/'access_history/authentication.parquet')+")) TO "+
+            quoted(target_dir/'access_history.parquet')+" (FORMAT PARQUET, COMPRESSION ZSTD)")
+    finally:con.close()
+    engine_manifest=json.loads((source_dir/'manifest.v1.json').read_text())
 
     # 4. Incidents & NDJSON summaries
     src_incidents = sorted((source_dir / "incidents").glob("*.json"))
-    summaries = []
+    summary_count=0
+    ndjson_path=target_dir/'incidents.ndjson'
+    ndjson_path.write_text('')
     severity_scores = {"critical": 95.0, "high": 80.0, "medium": 60.0, "low": 40.0, "informational": 20.0}
 
     for inc_file in src_incidents:
@@ -134,6 +90,10 @@ def adapt(source_dir: Path, target_dir: Path):
         if isinstance(ref_time, str) and not ref_time.endswith("Z") and "+" not in ref_time:
             ref_time += "Z"
 
+        # Step relationships get explicit event nodes rather than disappearing.
+        for step in raw.get('steps',[]):
+            entities.append({'entity_id':'step:'+step['step_id'],'type':'event','label':step['summary']})
+        known_entity_ids={e['entity_id'] for e in entities}
         # Steps to timeline
         timeline = []
         for s in raw.get("steps", []):
@@ -159,7 +119,7 @@ def adapt(source_dir: Path, target_dir: Path):
                 "observed_at": step_obs,
                 "display_order": s.get("step_index", 1),
                 "ordering_basis": "event timestamp",
-                "ordering_confidence": "high",
+                "ordering_confidence": "unknown",
                 "summary": s.get("summary") or "Suspicious activity detected",
                 "entity_ids": ent_ids,
                 "evidence_ids": ev_ids,
@@ -172,7 +132,8 @@ def adapt(source_dir: Path, target_dir: Path):
         # Edges to relationships
         relationships = []
         for e in raw.get("edges", []):
-            src, tgt = e.get("source_id"), e.get("target_id")
+            src=e.get('source_id') or ('step:'+e['source_step_id'] if e.get('source_step_id') else None)
+            tgt=e.get('target_id') or ('step:'+e['target_step_id'] if e.get('target_step_id') else None)
             if src in known_entity_ids and tgt in known_entity_ids:
                 interp = e.get("evidence_strength")
                 if interp not in {"observed", "derived", "hypothesized"}:
@@ -197,9 +158,12 @@ def adapt(source_dir: Path, target_dir: Path):
             "timeline": timeline,
             "relationships": relationships,
             "techniques": [{"id": t.get("id"), "name": t.get("name", t.get("id")), "tactic": t.get("tactic", "Unknown")} for t in raw.get("techniques", [])],
-            "kill_chain": [t.get("tactic") for t in raw.get("techniques", []) if t.get("tactic")],
-            "data_quality_impact": raw.get("uncertainties", []),
-            "engine_review": raw.get("ai_review", {}).get("result"),
+            "kill_chain": sorted({step["kill_chain_stage"] for step in raw.get("steps", []) if step.get("kill_chain_stage")}),
+            "data_quality_impact": raw.get("uncertainties", [])+[
+                'Input coverage: '+engine_manifest.get('input_completeness','unknown'),
+                'Excluded source bytes: '+str(engine_manifest.get('excluded_tail_bytes',0)),
+                'Risk score is a severity-derived display priority, not a probability.'],
+            "engine_review": raw.get("ai_review", {}),
         }
 
         target_inc_path = target_dir / "incidents" / f"{inc_id}.json"
@@ -218,24 +182,19 @@ def adapt(source_dir: Path, target_dir: Path):
                 "size_bytes": len(content_bytes),
             }
         }
-        summaries.append(summary)
-
-    # Write incidents.ndjson
-    ndjson_path = target_dir / "incidents.ndjson"
-    with ndjson_path.open("w") as f:
-        for s in summaries:
-            f.write(json.dumps(s) + "\n")
+        with ndjson_path.open('a') as output:output.write(json.dumps(summary)+'\n')
+        summary_count+=1
 
     # 5. Manifest.json
     manifest = {
         "contract_version": "1.0",
-        "run_id": "dumbo",
+        "run_id": engine_manifest["job_id"],
         "source_dataset": {
-            "name": "edr_events",
-            "source_size_bytes": (source_dir / "findings.parquet").stat().st_size if (source_dir / "findings.parquet").exists() else 8364767,
+            "name": source_dir.name,
+            "source_size_bytes": engine_manifest.get('source_bytes_total',sum(x.get('size_bytes',0) for x in engine_manifest.get('sources',[]))),
         },
         "status": "completed",
-        "incident_count": len(summaries),
+        "incident_count": summary_count,
         "engine_status": "completed",
         "engine_phase": "writing_results",
         "artifacts": {
@@ -266,10 +225,13 @@ def adapt(source_dir: Path, target_dir: Path):
         }
     }
     (target_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
-    print(f"✅ Successfully created {len(summaries)} incidents in {target_dir}/manifest.json!")
+    print(f"✅ Successfully created {summary_count} incidents in {target_dir}/manifest.json!")
 
 
 if __name__ == "__main__":
-    src = Path(sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Downloads/dumbo"))
-    tgt = Path(sys.argv[2] if len(sys.argv) > 2 else "data/input/dumbo")
-    adapt(src, tgt)
+    import argparse
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('source',type=Path,help='Completed engine run directory')
+    parser.add_argument('target',type=Path,help='Application handoff directory')
+    args=parser.parse_args()
+    adapt(args.source,args.target)

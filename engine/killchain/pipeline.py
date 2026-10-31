@@ -11,6 +11,7 @@ import sys
 import duckdb
 from .common import atomic_json, utcnow, CONTRACT
 from .ingest import inputs, ingest
+from .audit import audit_file
 from .analysis import prepare,detect,export_results,RULES
 
 class Progress(dict):
@@ -65,8 +66,26 @@ def analyze(input_path,output_path,job_id,config,callback=None):
     def check():
         if monitor.error:raise ValueError(monitor.error)
     try:
+        audits=[];limits={}
+        if config['preflight_audit']:
+            progress['phase']='auditing';progress.publish(True)
+            t=time.monotonic()
+            for file in files:
+                audit=audit_file(file);audits.append(audit)
+                if audit['excluded_tail_bytes']:
+                    if not config['recover_valid_prefix']:
+                        atomic_json(run/'input_audit.v1.json',{'sources':audits})
+                        raise ValueError('Input has unsupported binary bytes at '+str(audit['first_invalid_byte'])+'. Verify the file, or explicitly request --recover-valid-prefix for partial coverage.')
+                    limits[str(file)]=audit['processable_prefix_bytes']
+                progress.publish(True)
+            phase_times['audit_seconds']=time.monotonic()-t
+            atomic_json(run/'input_audit.v1.json',{'sources':audits})
+        excluded_bytes=sum(a['excluded_tail_bytes'] for a in audits)
+        progress['excluded_tail_bytes']=excluded_bytes
+        progress['coverage_status']='partial_recovery' if excluded_bytes else 'complete'
+        progress['analysis_total_bytes']=total-excluded_bytes
         progress['phase']='parsing';progress.publish(True)
-        t=time.monotonic();sources=ingest(files,run,config,progress);phase_times['ingestion_seconds']=time.monotonic()-t
+        t=time.monotonic();sources=ingest(files,run,config,progress,limits);phase_times['ingestion_seconds']=time.monotonic()-t
         check()
         con=duckdb.connect(str(run/'analysis.duckdb'))
         con.execute("SET memory_limit = '"+str(config['memory_gb'])+"GB'")
@@ -90,12 +109,19 @@ def analyze(input_path,output_path,job_id,config,callback=None):
           'incidents_path':'incidents.v1.jsonl','evidence_path':'evidence/incident_evidence.parquet',
           'access_history_path':'access_history/authentication.parquet','host_observations_path':'access_history/host_observations.parquet',
           'normalized_path':'normalized/events.parquet','findings_path':'findings.parquet',
-          'input_completeness':'complete' if not progress['malformed_records'] else 'completed_with_exclusions',
-          'warnings':['No guarantee of planted attack reconstruction from independent random generator events.',
+          'input_completeness':'partial_recovery' if excluded_bytes else ('complete' if not progress['malformed_records'] else 'completed_with_exclusions'),
+          'source_bytes_total':total,'analysis_bytes':total-excluded_bytes,'excluded_tail_bytes':excluded_bytes,'input_audit_path':'input_audit.v1.json' if audits else None,
+          'warnings':['Primary source format is official FortiGate telemetry; EDR generator is a secondary regression fixture.',
             'Kill-chain stage taxonomy remains unconfirmed; ATT&CK tactic is provided separately.',
             'Historical authentication is not current permission.'],
           'demo_indicators_enabled':config['demo_indicators']}
         atomic_json(run/'manifest.v1.json',manifest)
+        from .presentation import write_brief
+        from .common import load_json,within
+        with (run/'incidents.v1.jsonl').open() as entries:
+            for line in entries:
+                entry=json.loads(line)
+                write_brief(run,load_json(within(run,entry['bundle_path'])),manifest)
         progress['status']='completed';progress['phase']='completed';progress.publish(True);success=True
     except BaseException as exc:
         progress['status']='failed';progress['error']={'code':type(exc).__name__,'message':str(exc)[:500]}

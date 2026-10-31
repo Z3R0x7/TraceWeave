@@ -46,7 +46,8 @@ class EngineTests(unittest.TestCase):
         success=event('s',stamp='2026-10-31T10:01:00Z',category='authentication',action='user_logon')
         success['event']['outcome']='success';success['source']={'ip':'192.0.2.1'}
         run,p,cfg=self.run_events({'a.log':[success],'z.log':list(reversed(failed))})
-        self.assertEqual(p['incidents_found'],1);b=get_incident(run,next(incident_entries(run))['incident_id'])
+        self.assertEqual(p['incidents_found'],2)
+        b=next(get_incident(run,x['incident_id']) for x in incident_entries(run) if get_incident(run,x['incident_id'])['steps'][0]['rule_id']=='failures_then_success')
         self.assertEqual(b['steps'][0]['supporting_count'],25);self.assertEqual(b['steps'][0]['evidence_count'],26)
         self.assertTrue(validate_run(run)['valid'])
     def test_upstream_labels_alone_do_not_trigger(self):

@@ -19,5 +19,9 @@
   "ai_timeout_seconds": 30,
   "indicator_ips": [],
   "indicator_domains": [],
-  "demo_indicators": false
+  "demo_indicators": false,
+  "input_format": "auto",
+  "fail_on_binary": true,
+  "recover_valid_prefix": false,
+  "preflight_audit": true
 }

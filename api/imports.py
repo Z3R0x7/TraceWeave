@@ -97,6 +97,14 @@ class Importer:
             # Build indexes privately so downloads do not hold the application write lock.
             work = Store(stage / "index.sqlite")
             with work.connect() as db:
+                # One sequential evidence scan, then disk-backed indexed lookups per incident.
+                db.execute('CREATE TEMP TABLE evidence_lookup(incident_id TEXT,evidence_id TEXT,PRIMARY KEY(incident_id,evidence_id)) WITHOUT ROWID')
+                with duckdb.connect(':memory:') as evidence_db:
+                    evidence_db.execute("SET memory_limit='256MB'")
+                    evidence_db.execute('SET threads=1')
+                    cursor=evidence_db.execute(f"SELECT incident_id,evidence_id FROM {parquet(stage / 'evidence')}")
+                    while batch:=cursor.fetchmany(4096):
+                        db.executemany('INSERT INTO evidence_lookup VALUES (?,?)',batch)
                 db.execute("CREATE TEMP TABLE reviews(incident_id TEXT PRIMARY KEY,revision INT,review TEXT)")
                 if (stage / "engine_review").exists():
                     with (stage / "engine_review").open("rb") as review_file:
@@ -134,7 +142,7 @@ class Importer:
                         if any(getattr(incident, field) != getattr(summary, field) for field in
                                ["incident_id", "revision", "title", "severity", "risk_score"]):
                             raise ImportFailure("Summary and bundle metadata differ")
-                        self.validate_evidence(stage, incident)
+                        self.validate_evidence(stage, incident, db)
                         review = db.execute("SELECT revision,review FROM reviews WHERE incident_id=?",
                                             (incident.incident_id,)).fetchone()
                         if review:
@@ -226,10 +234,16 @@ class Importer:
                 if db.execute(f"SELECT 1 FROM {table} GROUP BY {keys} HAVING count(*)>1 LIMIT 1").fetchone():
                     raise ImportFailure(f"{name} contains duplicate identifiers")
 
-    def validate_evidence(self, stage, incident):
+    def validate_evidence(self, stage, incident, index=None):
         ids = {e for step in incident.timeline for e in step.evidence_ids}
         ids.update(e for edge in incident.relationships for e in edge.evidence_ids)
         if not ids:
+            return
+        if index is not None:
+            for evidence_id in ids:
+                if not index.execute('SELECT 1 FROM evidence_lookup WHERE incident_id=? AND evidence_id=?',
+                                     (incident.incident_id,evidence_id)).fetchone():
+                    raise ImportFailure('Incident references missing evidence')
             return
         with duckdb.connect(":memory:") as db:
             db.execute("SET memory_limit='512MB'")

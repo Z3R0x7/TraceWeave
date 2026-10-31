@@ -2,14 +2,21 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
-import math
 from pathlib import Path
 import shutil
 import pyarrow as pa
 import pyarrow.parquet as pq
 from .common import sanitize
+from .log_formats import decode_record
 
 SCHEMA = pa.schema([
+    ('record_format',pa.string()),
+    ('observer_name',pa.string()),('observer_id',pa.string()),('source_port',pa.int64()),
+    ('network_protocol',pa.string()),('network_session_id',pa.string()),
+    ('firewall_type',pa.string()),('firewall_subtype',pa.string()),('firewall_action',pa.string()),
+    ('signature_name',pa.string()),('signature_id',pa.string()),('severity_label',pa.string()),('log_message',pa.string()),
+    ('timestamp_source',pa.string()),('timestamp_conflict_seconds',pa.float64()),
+    ('recorded_local_timestamp',pa.string()),('recorded_eventtime',pa.string()),
     ('evidence_id',pa.string()), ('original_event_id',pa.string()),
     ('timestamp',pa.timestamp('us',tz='UTC')), ('host_name',pa.string()), ('host_ip',pa.string()),
     ('user_name',pa.string()), ('account_id',pa.string()), ('event_category',pa.string()),
@@ -41,7 +48,7 @@ def integer(v):
         return x if -(2**63) <= x < 2**63 else None
     except (ValueError,TypeError,OverflowError): return None
 
-def normalize(event, raw, source, file_id, number, offset):
+def normalize(event, raw, source, file_id, number, offset,record_format="ecs_jsonl"):
     if not isinstance(event,dict): raise ValueError('record_not_object')
     stamp=text(event.get('@timestamp'))
     if not stamp: raise ValueError('missing_timestamp')
@@ -73,23 +80,37 @@ def normalize(event, raw, source, file_id, number, offset):
                upstream_rule_name=text(get(event,'rule.name')),source_file=str(source),source_file_id=file_id,
                raw_record_number=number,byte_offset=offset,byte_length=len(raw),
                evidence_excerpt=json.dumps(sanitize(event),ensure_ascii=False,separators=(',',':'))[:4096])
+    if record_format=='fortigate_kv':
+        fields=event.get('_firewall',{}).get('original_fields',{})
+        selected={k:fields[k] for k in ['date','time','eventtime','tz','type','subtype','action','status','user','srcip','srcport','dstip','dstport','sessionid','attack','virus','sentbyte','rcvdbyte','msg'] if k in fields}
+        row['evidence_excerpt']=json.dumps(sanitize(selected),ensure_ascii=False,separators=(',',':'))[:4096]
+    row['record_format']=record_format
+    extra=event.get('_firewall',{})
+    for key in ['observer_name','observer_id','network_protocol','network_session_id','firewall_type',
+                'firewall_subtype','firewall_action','signature_name','signature_id','severity_label',
+                'log_message','timestamp_source','recorded_local_timestamp','recorded_eventtime']:
+        row[key]=text(extra.get(key))
+    row['source_port']=integer(extra.get('source_port',get(event,'source.port')))
+    row['timestamp_conflict_seconds']=extra.get('timestamp_conflict_seconds')
     return row
 
 def inputs(path):
     path=Path(path).resolve()
     if not path.exists(): raise ValueError('Input path does not exist')
     suffixes={'.log','.json','.jsonl','.ndjson'}
-    files=[path] if path.is_file() else sorted(p for p in path.rglob('*') if p.is_file() and not p.is_symlink() and p.suffix.lower() in suffixes)
-    if not files: raise ValueError('No supported line-delimited JSON input files')
+    files=[path] if path.is_file() else sorted(p for p in path.rglob('*') if p.is_file() and not p.is_symlink() and p.suffix.lower() in suffixes and not p.name.endswith('.manifest.json'))
+    if not files: raise ValueError('No supported log input files')
     return files
 
-def stream_records(source,max_bytes):
+def stream_records(source,max_bytes,stop_bytes=None):
     """Bound one line; drain oversized records in bounded reads."""
     with source.open('rb') as f:
         number=0
         while True:
             start=f.tell()
-            raw=f.readline(max_bytes+1)
+            if stop_bytes is not None and start>=stop_bytes:return
+            size=min(max_bytes+1,stop_bytes-start) if stop_bytes is not None else max_bytes+1
+            raw=f.readline(size)
             if not raw: return
             number+=1
             length=len(raw)
@@ -103,7 +124,7 @@ def stream_records(source,max_bytes):
             else:
                 yield number,start,length,raw,None
 
-def ingest(files,run,config,progress):
+def ingest(files,run,config,progress,limits=None):
     staging=run/'staging'
     staging.mkdir()
     diagnostics=run/'diagnostics'
@@ -121,24 +142,28 @@ def ingest(files,run,config,progress):
     with (diagnostics/'rejected.jsonl').open('w',encoding='utf-8') as rejected:
         for source in files:
             stat=source.stat(); file_id=hashlib.sha256((str(source)+'|'+str(stat.st_size)+'|'+str(stat.st_mtime_ns)).encode()).hexdigest()
-            file_hash=hashlib.sha256()
             previous=None
-            for number,offset,length,raw,error in stream_records(source,limit):
+            for number,offset,length,raw,error in stream_records(source,limit,(limits or {}).get(str(source))):
                 progress['records_read']+=1;progress['processed_bytes']+=length
                 if not error:
-                    file_hash.update(raw)
                     try:
-                        ev=json.loads(raw,parse_constant=lambda _: (_ for _ in ()).throw(ValueError('invalid_json_constant')))
-                        row=normalize(ev,raw,source,file_id,number,offset)
+                        ev,fmt=decode_record(raw,config['input_format'])
+                        row=normalize(ev,raw,source,file_id,number,offset,fmt)
                     except (ValueError,TypeError,UnicodeError,RecursionError) as exc:
-                        error=str(exc) if str(exc) in {'record_not_object','missing_timestamp','invalid_timestamp','timestamp_requires_timezone','missing_event_action'} else 'invalid_json_or_fields'
+                        error=str(exc) if str(exc) in {'record_not_object','missing_timestamp','invalid_timestamp','timestamp_requires_timezone','missing_event_action','unsupported_binary_record','invalid_key_value_record','duplicate_key_value_field','invalid_firewall_local_timestamp','invalid_firewall_eventtime'} else 'invalid_json_or_fields'
                 if error:
                     progress['malformed_records']+=1
                     rejected.write(json.dumps({'source_file':str(source),'record':number,'byte_offset':offset,'reason':error})+'\n')
+                    if error=='unsupported_binary_record' and config['fail_on_binary']:
+                        progress.publish(True)
+                        raise ValueError(f'Unsupported binary record at byte {offset}; full-input analysis cannot be claimed. Verify file format/integrity.')
                 else:
                     progress['records_parsed']+=1
-                    if not row['host_name'] or not row['account_id']: progress['missing_critical_fields']+=1
-                    if row['event_category'] not in {'process','network','authentication','file','registry'}: progress['unknown_event_types']+=1
+                    if not row['host_name'] and not row['observer_id']: progress['missing_critical_fields']+=1
+                    if row['timestamp_conflict_seconds'] and row['timestamp_conflict_seconds']>1:
+                        progress['timestamp_conflicts']=progress.get('timestamp_conflicts',0)+1
+                    progress[row['record_format']+'_records']=progress.get(row['record_format']+'_records',0)+1
+                    if row['event_category'] not in {'process','network','authentication','file','registry','system'}: progress['unknown_event_types']+=1
                     if previous and row['timestamp'] < previous: progress['out_of_order_records']+=1
                     previous=row['timestamp']
                     batch.append(row);batch_bytes+=length

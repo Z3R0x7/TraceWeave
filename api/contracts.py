@@ -49,7 +49,7 @@ class Manifest(Contract):
 
 class Entity(Contract):
     entity_id: str
-    type: Literal["host", "account", "ip", "process", "file"]
+    type: Literal["host", "account", "ip", "process", "file", "event"]
     label: str
 
 

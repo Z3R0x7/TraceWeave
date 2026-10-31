@@ -13,7 +13,8 @@
             "account",
             "ip",
             "process",
-            "file"
+            "file",
+            "event"
           ],
           "title": "Type",
           "type": "string"

@@ -93,6 +93,7 @@ elif page == "Incidents":
     chosen = st.selectbox("Select incident to investigate", list(summaries),
                           format_func=lambda i: f"{summaries[i]['title']} · {i}", key="inc_chosen")
     st.session_state["selected_incident"] = chosen
+    st.session_state["selected_run"] = run_id
     st.info(f"Selected incident `{chosen}`. Switch to 'Investigation' in the sidebar to inspect.")
 else:
     runs = get("/api/v1/runs")
@@ -111,12 +112,17 @@ else:
         st.info("Processing completed successfully with zero detected incidents.")
         st.stop()
     summaries = {i["incident_id"]: i for i in collection["items"]}
+    selected=st.session_state.get('selected_incident')
+    if selected and st.session_state.get('selected_run')==run_id and selected not in summaries:
+        detail=get(base+'/incidents/'+selected)
+        summaries[selected]={'incident_id':selected,'title':detail['title']}
     default_idx = 0
     if "selected_incident" in st.session_state and st.session_state["selected_incident"] in summaries:
         default_idx = list(summaries).index(st.session_state["selected_incident"])
     identifier = str(st.selectbox("Incident", list(summaries), index=default_idx,
                                  format_func=lambda i: f"{summaries[i]['title']} · {i}"))
     st.session_state["selected_incident"] = identifier
+    st.session_state["selected_run"] = run_id
     route = base + "/incidents/" + identifier
     incident = get(route)
     path = get(route + "/path")
@@ -124,6 +130,8 @@ else:
                                           "Next targets", "Data quality", "Report"], horizontal=True)
     if view == "Overview":
         st.subheader(incident["title"])
+        for limitation in incident.get('data_quality_impact',[]):
+            if limitation.startswith(('Input coverage:','Excluded source bytes:')):st.caption(limitation)
         st.write(f"Severity: {incident['severity']} · Risk: {incident['risk_score']}")
         st.json(incident["techniques"])
         if incident.get("kill_chain"):
@@ -131,7 +139,20 @@ else:
             st.json(incident["kill_chain"])
         if incident["engine_review"]:
             st.write("Engine review")
-            st.json(incident["engine_review"])
+            review=incident['engine_review']
+            result=review.get('result', review)
+            st.caption('AI review: '+review.get('status','unknown')+' — suggestions require analyst verification')
+            if result.get('explanation'):st.write(result['explanation'])
+            if result.get('technique_mappings'):
+                st.write('Suggested technique mappings')
+                st.dataframe(result['technique_mappings'],use_container_width=True)
+            if result.get('proposed_links'):
+                st.write('Suggested connections — not confirmed attack edges')
+                st.dataframe(result['proposed_links'],use_container_width=True)
+            if result.get('missing_evidence'):
+                st.write('Missing evidence')
+                for gap in result['missing_evidence']:st.write('• '+gap)
+            with st.expander('AI review details'):st.json(review)
     if view == "Timeline":
         st.caption("Timestamp ties and presentation order do not establish causality.")
         for step in path["timeline"]:
@@ -141,7 +162,7 @@ else:
                 st.write(f"Ordering: {step['ordering_basis']} ({step['ordering_confidence']})")
                 st.code(", ".join(step["evidence_ids"]))
     if view == "Graph":
-        eligible_nodes = [n for n in path["entities"] if n["type"] in {"host", "account"}]
+        eligible_nodes = [n for n in path["entities"] if n["type"] in {"host", "account", "ip", "process", "file", "event"}]
         nodes = eligible_nodes[:200]
         visible_ids = {n["entity_id"] for n in nodes}
         graph_edges = [e for e in path["relationships"]

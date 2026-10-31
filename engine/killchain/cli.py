@@ -13,11 +13,13 @@ from .resources import resolve_config,hardware
 console=Console(stderr=True)
 
 def config_overrides(args):
-    names=['profile','threads','memory_gb','batch_records','spill_gb','min_free_gb','ai_provider','ai_model','ai_max_reviews','demo_indicators']
+    names=['recover_valid_prefix','input_format','profile','threads','memory_gb','batch_records','spill_gb','min_free_gb','ai_provider','ai_model','ai_max_reviews','demo_indicators']
     return {k:getattr(args,k,None) for k in names if getattr(args,k,None) is not None}
 
 def add_config(p):
     p.add_argument('--config',type=Path)
+    p.add_argument('--recover-valid-prefix',action='store_true',default=None,help='Explicitly allow PARTIAL analysis of the verified text prefix; excluded bytes are reported')
+    p.add_argument('--input-format',choices=['auto','jsonl','fortigate'],help='Default auto detects each record; official data uses FortiGate key=value')
     p.add_argument('--profile',choices=['auto','conservative','balanced','throughput'])
     p.add_argument('--threads',type=int)
     p.add_argument('--memory-gb',type=float,help='Database budget, not total process memory')
@@ -35,6 +37,7 @@ def parser():
     sub.add_parser('menu',help='Interactive setup and run menu')
     d=sub.add_parser('doctor',help='Inspect CPU, memory and storage');d.add_argument('--workspace',type=Path,default=Path('.'))
     c=sub.add_parser('configure',help='Write non-secret configuration interactively');c.add_argument('--output',type=Path,default=Path('config.local.json'))
+    au=sub.add_parser('audit',help='Audit the complete file for UTF-8/binary boundaries and SHA-256');au.add_argument('--input',type=Path,required=True)
     i=sub.add_parser('inspect',help='Inspect bounded input samples');i.add_argument('--input',type=Path,required=True);i.add_argument('--limit',type=int,default=20)
     a=sub.add_parser('analyze',help='Analyze a stable line-delimited JSON dataset');a.add_argument('--input',type=Path,required=True);a.add_argument('--output',type=Path,required=True);a.add_argument('--job-id');a.add_argument('--quiet',action='store_true');add_config(a)
     l=sub.add_parser('incidents',help='List saved incidents');l.add_argument('--run',type=Path,required=True);l.add_argument('--offset',type=int,default=0);l.add_argument('--limit',type=int,default=20);l.add_argument('--sort',choices=['id','time','severity'],default='id');l.add_argument('--json',action='store_true')
@@ -86,6 +89,9 @@ def main(argv=None):
         if args.command=='menu':return menu()
         if args.command=='doctor':print(json.dumps(hardware(args.workspace),indent=2));return 0
         if args.command=='configure':configure(args.output);return 0
+        if args.command=='audit':
+            from .audit import audit_file
+            print(json.dumps(audit_file(args.input),indent=2));return 0
         if args.command=='inspect':
             from .ingest import inputs,stream_records,normalize
             if not 1<=args.limit<=1000:raise ValueError('limit must be between 1 and 1000')
@@ -95,12 +101,14 @@ def main(argv=None):
                     n+=1
                     try:
                         if error:raise ValueError(error)
-                        row=normalize(json.loads(raw),raw,path,'inspection',number,offset)
-                        sample.append({'category':row['event_category'],'action':row['event_action'],'has_process_identity':bool(row['process_entity_id'])})
+                        from .log_formats import decode_record
+                        event,fmt=decode_record(raw)
+                        row=normalize(event,raw,path,'inspection',number,offset,fmt)
+                        sample.append({'format':row['record_format'],'category':row['event_category'],'action':row['event_action'],'has_process_identity':bool(row['process_entity_id'])})
                     except (ValueError,TypeError,UnicodeError,RecursionError):errors+=1
                     if n>=args.limit:break
                 if n>=args.limit:break
-            print(json.dumps({'files':len(files),'total_bytes':sum(p.stat().st_size for p in files),'sampled_records':n,'sample_parse_errors':errors,'sample':sample,'format':'line-delimited JSON; extension is not a format guarantee'},indent=2));return 0
+            print(json.dumps({'files':len(files),'total_bytes':sum(p.stat().st_size for p in files),'sampled_records':n,'sample_parse_errors':errors,'sample':sample,'format':'per-record auto-detection: FortiGate key=value or ECS JSON lines'},indent=2));return 0
         if args.command=='analyze':
             from .pipeline import analyze
             config=resolve_config(args.config,config_overrides(args),args.output)
@@ -138,6 +146,10 @@ def main(argv=None):
             for s in b['steps']:
                 console.print(f"{s['step_index']}. {s['timestamp']} {s['summary']} [{s['technique_id'] or 'unmapped'}]\n   Evidence: {', '.join(s['evidence_ids'][:3])}\n   Limit: {s['uncertainty_reason']}",markup=False)
             console.print('AI: '+b['ai_review']['status'],markup=False)
+            if b['ai_review'].get('status')=='completed':
+                review=b['ai_review']['result']
+                console.print('AI explanation: '+review['explanation'],markup=False)
+                console.print('Missing evidence: '+('; '.join(review['missing_evidence']) or 'None reported; analyst verification still required.'),markup=False)
             if b['steps_truncated']:console.print('Preview truncated; full detections are in findings.parquet.',markup=False)
             return 0
         if args.command=='evidence':

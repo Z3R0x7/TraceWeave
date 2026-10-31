@@ -3,6 +3,9 @@ import json
 from .common import sql_string, atomic_json, digest, iso, CONTRACT
 
 RULES = {
+ 'firewall_ips_alert': {'technique_id':None,'name':None,'tactic':None,'severity':'high','summary':'Firewall recorded an intrusion-prevention signature','basis':'upstream_security_event','limitation':'Signature detection is recorded; successful exploitation is not established.'},
+ 'firewall_malware_alert': {'technique_id':None,'name':None,'tactic':None,'severity':'high','summary':'Firewall recorded an antivirus detection','basis':'upstream_security_event','limitation':'Detection or blocking does not establish endpoint execution or compromise.'},
+ 'repeated_login_failures': {'technique_id':'T1110','name':'Brute Force','tactic':'Credential Access','severity':'medium','summary':'Recorded authentication failures crossed the configured threshold','basis':'temporal_sequence','limitation':'A failed-authentication burst is observed; successful access is not established.'},
  'office_powershell': {'technique_id':'T1059.001','name':'PowerShell','tactic':'Execution','severity':'high','summary':'Office application launched PowerShell','basis':'raw_event','limitation':'Execution is observed; attacker intent is not established.'},
  'autorun_script': {'technique_id':'T1547.001','name':'Registry Run Keys / Startup Folder','tactic':'Persistence','severity':'high','summary':'Scripting engine modified a user autorun key','basis':'raw_event','limitation':'A persistence mechanism is observed; authorization is unknown.'},
  'configured_destination': {'technique_id':None,'name':None,'tactic':None,'severity':'medium','summary':'Outbound connection matched a configured indicator','basis':'configured_indicator','limitation':'An indicator match alone does not prove command and control or periodic beaconing.'},
@@ -31,6 +34,8 @@ def detect(con,run,config,progress):
     con.execute('CREATE TABLE detections(evidence_id VARCHAR, rule_id VARCHAR, supporting_count BIGINT)')
     def add(rule,predicate):
         con.execute('INSERT INTO detections SELECT evidence_id, ?, 1 FROM events WHERE '+predicate,[rule])
+    add('firewall_ips_alert',"record_format='fortigate_kv' AND firewall_type='utm' AND firewall_subtype='ips' AND signature_name IS NOT NULL")
+    add('firewall_malware_alert',"record_format='fortigate_kv' AND firewall_type='utm' AND firewall_subtype='virus' AND signature_name IS NOT NULL")
     add('office_powershell',"event_category='process' AND lower(process_name) IN ('powershell.exe','pwsh.exe','pwsh') AND lower(parent_process_name) IN ('winword.exe','excel.exe','powerpnt.exe','outlook.exe')")
     add('autorun_script',"event_category='registry' AND contains(lower(registry_path), 'currentversion') AND (contains(lower(registry_path), '\\run\\') OR ends_with(lower(registry_path), '\\run') OR contains(lower(registry_path), '\\runonce\\')) AND lower(process_name) IN ('powershell.exe','pwsh.exe','wscript.exe','cscript.exe')")
     add('reported_failures',f"event_category='authentication' AND reported_failed_count >= {config['failure_threshold']}")
@@ -44,15 +49,18 @@ def detect(con,run,config,progress):
     if domains: predicates.append("rtrim(lower(destination_domain),'.') IN ("+','.join(sql_string(x) for x in domains)+')')
     if predicates: add('configured_destination',"event_category='network' AND ("+' OR '.join(predicates)+')')
     window=config['failure_window_minutes'];threshold=config['failure_threshold']
-    con.execute(f'''CREATE TABLE auth_sequences AS
-      SELECT * FROM (
+    con.execute(f'''CREATE TABLE auth_counts AS
        SELECT evidence_id, timestamp, host_name, account_id, source_ip, outcome,
         count(*) FILTER (WHERE outcome='failure') OVER (
           PARTITION BY host_name,account_id,source_ip ORDER BY timestamp
           RANGE BETWEEN INTERVAL '{window} minutes' PRECEDING AND CURRENT ROW) AS failure_count
        FROM events WHERE event_category='authentication' AND host_name IS NOT NULL
-          AND account_id IS NOT NULL AND source_ip IS NOT NULL
-      ) WHERE outcome='success' AND failure_count >= {threshold}''')
+          AND account_id IS NOT NULL AND source_ip IS NOT NULL''')
+    con.execute(f"CREATE TABLE auth_sequences AS SELECT * FROM auth_counts WHERE outcome='success' AND failure_count >= {threshold}")
+    con.execute(f'''CREATE TABLE failure_bursts AS SELECT * EXCLUDE(previous_count) FROM (
+       SELECT *, lag(failure_count,1,0) OVER (PARTITION BY host_name,account_id,source_ip ORDER BY timestamp,evidence_id) AS previous_count
+       FROM auth_counts) WHERE outcome='failure' AND failure_count>={threshold} AND previous_count<{threshold}''')
+    con.execute("INSERT INTO detections SELECT evidence_id,'repeated_login_failures',failure_count FROM failure_bursts")
     con.execute("INSERT INTO detections SELECT evidence_id, 'failures_then_success', failure_count FROM auth_sequences")
     # Full supporting membership stays on disk; no enormous list aggregation in Python or SQL.
     con.execute('CREATE TABLE finding_evidence AS SELECT evidence_id AS finding_event_id, rule_id, evidence_id FROM detections')
@@ -62,19 +70,31 @@ def detect(con,run,config,progress):
        AND f.outcome='failure' AND f.host_name=s.host_name AND f.account_id=s.account_id
        AND f.source_ip=s.source_ip
        AND f.timestamp BETWEEN s.timestamp-INTERVAL '{window} minutes' AND s.timestamp''')
+    con.execute(f'''INSERT INTO finding_evidence
+      SELECT s.evidence_id,'repeated_login_failures',f.evidence_id
+      FROM failure_bursts s JOIN events f ON f.event_category='authentication'
+       AND f.outcome='failure' AND f.host_name=s.host_name AND f.account_id=s.account_id
+       AND f.source_ip=s.source_ip AND f.evidence_id!=s.evidence_id
+       AND f.timestamp BETWEEN s.timestamp-INTERVAL '{window} minutes' AND s.timestamp''')
     progress['detections_found']=con.execute('SELECT count(*) FROM detections').fetchone()[0]
     progress['phase']='correlating';progress.publish()
-    # Explicit process identity is the only automatic multi-detection grouping in v1.
+    # Group only explicit process identity or conservative observer-scoped session membership.
     # A missing identity yields an individual investigation, not host/time-based invented continuity.
     con.execute('''CREATE TABLE findings AS SELECT
        'inc_' || substr(sha256(CASE WHEN e.process_entity_id IS NOT NULL AND e.host_name IS NOT NULL
-          THEN 'process|'||e.host_name||'|'||e.process_entity_id ELSE 'event|'||e.evidence_id END),1,24) AS incident_id,
+          THEN 'process|'||e.host_name||'|'||e.process_entity_id
+          WHEN e.network_session_id IS NOT NULL AND e.observer_id IS NOT NULL
+            AND e.source_ip IS NOT NULL AND e.destination_ip IS NOT NULL
+          THEN 'session|'||to_json(struct_pack(observer:=e.observer_id,session:=e.network_session_id,
+            src:=e.source_ip,dst:=e.destination_ip,sport:=e.source_port,dport:=e.destination_port,
+            proto:=e.network_protocol,time_bucket:=floor(epoch(e.timestamp)/300)))
+          ELSE 'event|'||e.evidence_id END),1,24) AS incident_id,
        'det_' || substr(sha256(d.evidence_id||'|'||d.rule_id),1,24) AS detection_id,
        d.evidence_id,d.rule_id,d.supporting_count,e.timestamp,e.host_name,e.account_id,e.process_entity_id
        FROM detections d JOIN events e USING(evidence_id)''')
     con.execute('''CREATE TABLE incident_summaries AS SELECT incident_id,
       min(timestamp) AS first_seen,max(timestamp) AS last_seen,count(*) AS detection_count,
-      CASE WHEN count(*) FILTER (WHERE rule_id IN ('office_powershell','autorun_script','reported_renames','failures_then_success'))>0
+      CASE WHEN count(*) FILTER (WHERE rule_id IN ('office_powershell','autorun_script','reported_renames','failures_then_success','firewall_ips_alert','firewall_malware_alert'))>0
         THEN 'high' ELSE 'medium' END AS severity,
       CASE WHEN count(DISTINCT evidence_id)>1 THEN 'related_activity' ELSE 'single_finding' END AS incident_kind
       FROM findings GROUP BY incident_id''')
@@ -134,10 +154,10 @@ def make_bundle(con,iid,summary,config,rows_override=None):
     for index,r in enumerate(rows_override,1):
         rule=RULES[r['rule_id']]
         ids=[r['evidence_id']]; full_count=1
-        if r['rule_id']=='failures_then_success':
+        if r['rule_id'] in {'failures_then_success','repeated_login_failures'}:
             ids=[x[0] for x in con.execute("""SELECT evidence_id FROM finding_evidence
                WHERE finding_event_id=? AND rule_id=? ORDER BY evidence_id LIMIT 100""",[r['evidence_id'],r['rule_id']]).fetchall()]
-            full_count=r['supporting_count']+1
+            full_count=r['supporting_count']+(1 if r['rule_id']=='failures_then_success' else 0)
         host_id='host:'+r['host_name'] if r['host_name'] else None
         account_id='account:'+r['account_id'] if r['account_id'] else None
         if host_id:entities[host_id]={'entity_id':host_id,'type':'host','label':r['host_name']}
@@ -161,6 +181,18 @@ def make_bundle(con,iid,summary,config,rows_override=None):
             edges.append({'edge_id':'edge_'+digest(step['step_id']+'network'),'source_id':host_id,'target_id':target,
               'relationship':'connection_recorded_to','evidence_ids':[r['evidence_id']],'evidence_strength':'observed',
               'reason':'Destination is recorded in the network event; no claim about successful exfiltration.'})
+        if not host_id and r['source_ip'] and r['destination_ip']:
+            source='ip:'+r['source_ip'];target='ip:'+r['destination_ip']
+            for eid,label in [(source,r['source_ip']),(target,r['destination_ip'])]:
+                entities[eid]={'entity_id':eid,'type':'ip','label':label}
+            edges.append({'edge_id':'edge_'+digest(step['step_id']+'firewall-network'),'source_id':source,'target_id':target,
+              'relationship':'firewall_observed_activity_to','evidence_ids':[r['evidence_id']],'evidence_strength':'observed',
+              'reason':'Source and destination are recorded by the firewall observer; accept, deny and signature actions do not prove compromise.'})
+        if prev and r.get('network_session_id') and not r['process_entity_id']:
+            edges.append({'edge_id':'edge_'+digest(prev['step_id']+step['step_id']+'session'),
+              'source_step_id':prev['step_id'],'target_step_id':step['step_id'],
+              'relationship':'same_recorded_network_session','evidence_ids':[prev['primary_evidence_id'],r['evidence_id']],
+              'evidence_strength':'derived','reason':'Same firewall observer, session identifier, network tuple and five-minute bucket. Session association does not establish causality or compromise.'})
         if prev and r['process_entity_id']:
             edges.append({'edge_id':'edge_'+digest(prev['step_id']+step['step_id']),
               'source_step_id':prev['step_id'],'target_step_id':step['step_id'],'relationship':'same_recorded_process',
@@ -173,7 +205,7 @@ def make_bundle(con,iid,summary,config,rows_override=None):
       'steps_truncated':summary['detection_count']>cap,'total_step_count':summary['detection_count'],
       'stage_taxonomy':'unconfirmed; ATT&CK tactics supplied separately',
       'uncertainties':['Candidate investigation, not a confirmed attack. No inferred missing attack steps.',
-        'Stable process identity is required for automatic multi-event grouping in this version.',
+        'Multi-event groups require a host-scoped process identity or an observer-scoped network session and tuple within one five-minute bucket. Session groups can split at bucket boundaries and do not prove causality.',
         'Presentation tie-breaks do not imply causal order.'],
       'ai_review':{'status':'not_requested'},'evidence_path':'evidence/incident_evidence.parquet',
       'all_steps_query':'Find all detections for this incident in findings.parquet; bounded bundle is a preview.'}
