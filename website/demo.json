@@ -1,0 +1,389 @@
+{
+  "summary": {
+    "status": "fixture",
+    "synthetic": true,
+    "source_bytes": 21129,
+    "counts": {
+      "records": 71,
+      "parsed": 71,
+      "normalized": 71,
+      "findings": 2,
+      "timestamp_conflicts": 71
+    },
+    "incident_count": 1,
+    "ai": {
+      "enabled": false,
+      "status": "not_run"
+    }
+  },
+  "incidents": [
+    {
+      "incident_id": "dummy_auth_001",
+      "kind": "candidate_related_activity",
+      "confirmed_attack": false,
+      "entities": {
+        "account:demo.alex": {
+          "type": "account",
+          "label": "demo.alex"
+        },
+        "host:DEMO-VPN-001": {
+          "type": "host",
+          "label": "DEMO-VPN-001"
+        },
+        "ip:192.0.2.200": {
+          "type": "ip",
+          "label": "192.0.2.200"
+        },
+        "ip:198.51.100.254": {
+          "type": "ip",
+          "label": "198.51.100.254"
+        }
+      },
+      "steps": [
+        {
+          "id": "dummy_auth_finding_1",
+          "timestamp": 1792745984000000,
+          "summary": "At least 10 failures for the same account, source and recorded VPN gateway within 15 minutes.",
+          "technique_id": "T1110",
+          "technique_name": "Brute Force",
+          "tactic": "Credential Access",
+          "kill_chain_phase": "Exploitation",
+          "rule": "authentication_failure_burst",
+          "origin": "rule",
+          "interpretation_status": "derived",
+          "maliciousness": "suspicious_not_confirmed",
+          "evidence_ids": [
+            "5a1601bd455d3adf74669703d4ffea92e9883a146bdc5d3ef59858e47c7124df",
+            "05f871817aa8355d7cd17bc7ae0a2524dc48074ac5379693d5ee9a422223544e",
+            "480ea3d91f5abda9e6747eb99753728e235c1bb12dd92e404e2192751eae0dd9",
+            "ef617100532f549c4537b547680697283067422e0d5c439caad52dc802461a5b",
+            "32839ff48980592433eb68d1ea19762ddc85fb29cf2bcadd6516bfd37ca25498",
+            "bf4d6e2b3fb5a56b1be6b0fa5fe31101e645f2bc6ed82b0737100cbdf365f113",
+            "fcfc150c7ec08535b29130446d9fb9e121cd179ca1258d84ad4fbb0ba19b7351",
+            "321a33647d698c5f6004b1ab815195cf8859e98b8f0529f32d1fff7e5b1db774",
+            "3af21a4b8873910744f9b5a73b658fd62e4d820ea0c58a52fae96733f96562c6",
+            "1470ba81d45ecb438c6c3e026fe0000701e0bda4f9bfd122a086a4d3c49aa1b0"
+          ],
+          "limitations": [
+            "Synthetic authentication scenario added for investigation development.",
+            "Account compromise is not proven.",
+            "Timestamp conflicts and ordered observations do not establish causal attack steps."
+          ],
+          "synthetic": true
+        },
+        {
+          "id": "dummy_auth_finding_2",
+          "timestamp": 1792745988000000,
+          "summary": "Successful authentication after 10 failures for the same recorded account, source and target; legitimate recovery remains possible.",
+          "technique_id": "T1078",
+          "technique_name": "Valid Accounts",
+          "tactic": "Initial Access",
+          "kill_chain_phase": "Exploitation",
+          "rule": "failures_then_success",
+          "origin": "rule",
+          "interpretation_status": "derived",
+          "maliciousness": "suspicious_not_confirmed",
+          "evidence_ids": [
+            "5a1601bd455d3adf74669703d4ffea92e9883a146bdc5d3ef59858e47c7124df",
+            "05f871817aa8355d7cd17bc7ae0a2524dc48074ac5379693d5ee9a422223544e",
+            "480ea3d91f5abda9e6747eb99753728e235c1bb12dd92e404e2192751eae0dd9",
+            "ef617100532f549c4537b547680697283067422e0d5c439caad52dc802461a5b",
+            "32839ff48980592433eb68d1ea19762ddc85fb29cf2bcadd6516bfd37ca25498",
+            "bf4d6e2b3fb5a56b1be6b0fa5fe31101e645f2bc6ed82b0737100cbdf365f113",
+            "fcfc150c7ec08535b29130446d9fb9e121cd179ca1258d84ad4fbb0ba19b7351",
+            "321a33647d698c5f6004b1ab815195cf8859e98b8f0529f32d1fff7e5b1db774",
+            "3af21a4b8873910744f9b5a73b658fd62e4d820ea0c58a52fae96733f96562c6",
+            "1470ba81d45ecb438c6c3e026fe0000701e0bda4f9bfd122a086a4d3c49aa1b0",
+            "978409dda6d0331569d5a043b8c102e3ff197dfead61722ff9a09b018bbf5ebf"
+          ],
+          "limitations": [
+            "Synthetic authentication scenario added for investigation development.",
+            "Account compromise is not proven.",
+            "Timestamp conflicts and ordered observations do not establish causal attack steps."
+          ],
+          "synthetic": true
+        }
+      ],
+      "ai_hypotheses": [],
+      "relationships": [
+        {
+          "source": "dummy_auth_finding_1",
+          "target": "dummy_auth_finding_2",
+          "type": "same_recorded_authentication_identity",
+          "evidence": [
+            "5a1601bd455d3adf74669703d4ffea92e9883a146bdc5d3ef59858e47c7124df",
+            "05f871817aa8355d7cd17bc7ae0a2524dc48074ac5379693d5ee9a422223544e",
+            "480ea3d91f5abda9e6747eb99753728e235c1bb12dd92e404e2192751eae0dd9",
+            "ef617100532f549c4537b547680697283067422e0d5c439caad52dc802461a5b",
+            "32839ff48980592433eb68d1ea19762ddc85fb29cf2bcadd6516bfd37ca25498",
+            "bf4d6e2b3fb5a56b1be6b0fa5fe31101e645f2bc6ed82b0737100cbdf365f113",
+            "fcfc150c7ec08535b29130446d9fb9e121cd179ca1258d84ad4fbb0ba19b7351",
+            "321a33647d698c5f6004b1ab815195cf8859e98b8f0529f32d1fff7e5b1db774",
+            "3af21a4b8873910744f9b5a73b658fd62e4d820ea0c58a52fae96733f96562c6",
+            "1470ba81d45ecb438c6c3e026fe0000701e0bda4f9bfd122a086a4d3c49aa1b0",
+            "978409dda6d0331569d5a043b8c102e3ff197dfead61722ff9a09b018bbf5ebf"
+          ],
+          "interpretation_status": "inferred",
+          "limitations": [
+            "Same account/source/target and ordered times; no proof the same person caused both."
+          ]
+        }
+      ],
+      "total_rule_findings": 2,
+      "steps_truncated": false,
+      "ordering": "Timestamp presentation order; original timestamp conflict is retained.",
+      "synthetic": true
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "5a1601bd455d3adf74669703d4ffea92e9883a146bdc5d3ef59858e47c7124df",
+      "source_path": "sample-source.log",
+      "source_sha256": "ca66b4d681021ea4ff619902e7a7fa1457039287941332399318e5028c276a83",
+      "record_number": 61,
+      "byte_offset": 18103,
+      "byte_length": 275,
+      "preview": "date=2026-10-23 time=08:59:08 tz=\"+0530\" eventtime=1792745948000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"",
+      "timestamp_difference_seconds": 19800.0,
+      "synthetic": true,
+      "timestamp": 1792745948000000
+    },
+    {
+      "evidence_id": "05f871817aa8355d7cd17bc7ae0a2524dc48074ac5379693d5ee9a422223544e",
+      "source_path": "sample-source.log",
+      "source_sha256": "ca66b4d681021ea4ff619902e7a7fa1457039287941332399318e5028c276a83",
+      "record_number": 62,
+      "byte_offset": 18378,
+      "byte_length": 275,
+      "preview": "date=2026-10-23 time=08:59:12 tz=\"+0530\" eventtime=1792745952000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"",
+      "timestamp_difference_seconds": 19800.0,
+      "synthetic": true,
+      "timestamp": 1792745952000000
+    },
+    {
+      "evidence_id": "480ea3d91f5abda9e6747eb99753728e235c1bb12dd92e404e2192751eae0dd9",
+      "source_path": "sample-source.log",
+      "source_sha256": "ca66b4d681021ea4ff619902e7a7fa1457039287941332399318e5028c276a83",
+      "record_number": 63,
+      "byte_offset": 18653,
+      "byte_length": 275,
+      "preview": "date=2026-10-23 time=08:59:16 tz=\"+0530\" eventtime=1792745956000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"",
+      "timestamp_difference_seconds": 19800.0,
+      "synthetic": true,
+      "timestamp": 1792745956000000
+    },
+    {
+      "evidence_id": "ef617100532f549c4537b547680697283067422e0d5c439caad52dc802461a5b",
+      "source_path": "sample-source.log",
+      "source_sha256": "ca66b4d681021ea4ff619902e7a7fa1457039287941332399318e5028c276a83",
+      "record_number": 64,
+      "byte_offset": 18928,
+      "byte_length": 275,
+      "preview": "date=2026-10-23 time=08:59:20 tz=\"+0530\" eventtime=1792745960000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"",
+      "timestamp_difference_seconds": 19800.0,
+      "synthetic": true,
+      "timestamp": 1792745960000000
+    },
+    {
+      "evidence_id": "32839ff48980592433eb68d1ea19762ddc85fb29cf2bcadd6516bfd37ca25498",
+      "source_path": "sample-source.log",
+      "source_sha256": "ca66b4d681021ea4ff619902e7a7fa1457039287941332399318e5028c276a83",
+      "record_number": 65,
+      "byte_offset": 19203,
+      "byte_length": 275,
+      "preview": "date=2026-10-23 time=08:59:24 tz=\"+0530\" eventtime=1792745964000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"",
+      "timestamp_difference_seconds": 19800.0,
+      "synthetic": true,
+      "timestamp": 1792745964000000
+    },
+    {
+      "evidence_id": "bf4d6e2b3fb5a56b1be6b0fa5fe31101e645f2bc6ed82b0737100cbdf365f113",
+      "source_path": "sample-source.log",
+      "source_sha256": "ca66b4d681021ea4ff619902e7a7fa1457039287941332399318e5028c276a83",
+      "record_number": 66,
+      "byte_offset": 19478,
+      "byte_length": 275,
+      "preview": "date=2026-10-23 time=08:59:28 tz=\"+0530\" eventtime=1792745968000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"",
+      "timestamp_difference_seconds": 19800.0,
+      "synthetic": true,
+      "timestamp": 1792745968000000
+    },
+    {
+      "evidence_id": "fcfc150c7ec08535b29130446d9fb9e121cd179ca1258d84ad4fbb0ba19b7351",
+      "source_path": "sample-source.log",
+      "source_sha256": "ca66b4d681021ea4ff619902e7a7fa1457039287941332399318e5028c276a83",
+      "record_number": 67,
+      "byte_offset": 19753,
+      "byte_length": 275,
+      "preview": "date=2026-10-23 time=08:59:32 tz=\"+0530\" eventtime=1792745972000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"",
+      "timestamp_difference_seconds": 19800.0,
+      "synthetic": true,
+      "timestamp": 1792745972000000
+    },
+    {
+      "evidence_id": "321a33647d698c5f6004b1ab815195cf8859e98b8f0529f32d1fff7e5b1db774",
+      "source_path": "sample-source.log",
+      "source_sha256": "ca66b4d681021ea4ff619902e7a7fa1457039287941332399318e5028c276a83",
+      "record_number": 68,
+      "byte_offset": 20028,
+      "byte_length": 275,
+      "preview": "date=2026-10-23 time=08:59:36 tz=\"+0530\" eventtime=1792745976000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"",
+      "timestamp_difference_seconds": 19800.0,
+      "synthetic": true,
+      "timestamp": 1792745976000000
+    },
+    {
+      "evidence_id": "3af21a4b8873910744f9b5a73b658fd62e4d820ea0c58a52fae96733f96562c6",
+      "source_path": "sample-source.log",
+      "source_sha256": "ca66b4d681021ea4ff619902e7a7fa1457039287941332399318e5028c276a83",
+      "record_number": 69,
+      "byte_offset": 20303,
+      "byte_length": 275,
+      "preview": "date=2026-10-23 time=08:59:40 tz=\"+0530\" eventtime=1792745980000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"",
+      "timestamp_difference_seconds": 19800.0,
+      "synthetic": true,
+      "timestamp": 1792745980000000
+    },
+    {
+      "evidence_id": "1470ba81d45ecb438c6c3e026fe0000701e0bda4f9bfd122a086a4d3c49aa1b0",
+      "source_path": "sample-source.log",
+      "source_sha256": "ca66b4d681021ea4ff619902e7a7fa1457039287941332399318e5028c276a83",
+      "record_number": 70,
+      "byte_offset": 20578,
+      "byte_length": 275,
+      "preview": "date=2026-10-23 time=08:59:44 tz=\"+0530\" eventtime=1792745984000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"",
+      "timestamp_difference_seconds": 19800.0,
+      "synthetic": true,
+      "timestamp": 1792745984000000
+    },
+    {
+      "evidence_id": "978409dda6d0331569d5a043b8c102e3ff197dfead61722ff9a09b018bbf5ebf",
+      "source_path": "sample-source.log",
+      "source_sha256": "ca66b4d681021ea4ff619902e7a7fa1457039287941332399318e5028c276a83",
+      "record_number": 71,
+      "byte_offset": 20853,
+      "byte_length": 276,
+      "preview": "date=2026-10-23 time=08:59:48 tz=\"+0530\" eventtime=1792745988000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"success\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"",
+      "timestamp_difference_seconds": 19800.0,
+      "synthetic": true,
+      "timestamp": 1792745988000000
+    }
+  ],
+  "context": {
+    "synthetic": true,
+    "scope": "Invented inventory and permission facts for FR6 demonstration; not measured network reachability.",
+    "as_of": "2026-10-23T09:00:00Z",
+    "incident_id": "dummy_auth_001",
+    "principal": "demo.alex",
+    "entry_host": "DEMO-VPN-001",
+    "facts": [
+      {
+        "id": "ctx_session",
+        "type": "session",
+        "account": "demo.alex",
+        "host": "DEMO-VPN-001",
+        "valid_from": "2026-10-23T00:00:00Z",
+        "valid_until": "2026-10-24T00:00:00Z",
+        "statement": "Synthetic VPN authentication record associates demo.alex with DEMO-VPN-001."
+      },
+      {
+        "id": "ctx_acl_fs",
+        "type": "network_allow",
+        "source_host": "DEMO-VPN-001",
+        "target_host": "DEMO-FS-02",
+        "port": 445,
+        "valid_from": "2026-10-23T00:00:00Z",
+        "valid_until": "2026-10-24T00:00:00Z",
+        "statement": "Synthetic network policy allows VPN clients to reach DEMO-FS-02 on TCP/445; not a live connectivity check."
+      },
+      {
+        "id": "ctx_permission_fs",
+        "type": "permission",
+        "account": "demo.alex",
+        "target_host": "DEMO-FS-02",
+        "privilege": "read shared files",
+        "valid_from": "2026-10-23T00:00:00Z",
+        "valid_until": "2026-10-24T00:00:00Z",
+        "statement": "Synthetic access inventory grants demo.alex read access to DEMO-FS-02 shares; no administrative rights."
+      },
+      {
+        "id": "ctx_acl_dc",
+        "type": "network_allow",
+        "source_host": "DEMO-VPN-001",
+        "target_host": "DEMO-DC-01",
+        "port": 389,
+        "valid_from": "2026-10-23T00:00:00Z",
+        "valid_until": "2026-10-24T00:00:00Z",
+        "statement": "Synthetic policy allows TCP/389 to DEMO-DC-01. No matching account permission evidence is supplied."
+      },
+      {
+        "id": "ctx_expired",
+        "type": "permission",
+        "account": "demo.alex",
+        "target_host": "DEMO-OLD-01",
+        "privilege": "admin",
+        "valid_from": "2026-10-01T00:00:00Z",
+        "valid_until": "2026-10-02T00:00:00Z",
+        "statement": "Expired example, deliberately excluded from current reach candidates."
+      },
+      {
+        "valid_from": "2026-10-23T00:00:00Z",
+        "valid_until": "2026-10-24T00:00:00Z",
+        "id": "ctx_backup_net",
+        "type": "network_allow",
+        "source_host": "DEMO-VPN-001",
+        "target_host": "DEMO-BACKUP-03",
+        "port": 5985,
+        "statement": "Invented policy allows WinRM to the demo backup server."
+      },
+      {
+        "valid_from": "2026-10-23T00:00:00Z",
+        "valid_until": "2026-10-24T00:00:00Z",
+        "id": "ctx_backup_admin",
+        "type": "permission",
+        "account": "demo.alex",
+        "target_host": "DEMO-BACKUP-03",
+        "privilege": "admin",
+        "capabilities": [
+          "admin"
+        ],
+        "port": 5985,
+        "statement": "Invented administrator permission; no actual attacker control is established."
+      },
+      {
+        "valid_from": "2026-10-23T00:00:00Z",
+        "valid_until": "2026-10-24T00:00:00Z",
+        "id": "ctx_backup_session",
+        "type": "session",
+        "account": "demo.alex",
+        "host": "DEMO-BACKUP-03",
+        "statement": "Invented current session on backup host; usability remains an assumption."
+      },
+      {
+        "valid_from": "2026-10-23T00:00:00Z",
+        "valid_until": "2026-10-24T00:00:00Z",
+        "id": "ctx_archive_net",
+        "type": "network_allow",
+        "source_host": "DEMO-BACKUP-03",
+        "target_host": "DEMO-ARCHIVE-04",
+        "port": 445,
+        "statement": "Invented policy for an optional second hop."
+      },
+      {
+        "valid_from": "2026-10-23T00:00:00Z",
+        "valid_until": "2026-10-24T00:00:00Z",
+        "id": "ctx_archive_read",
+        "type": "permission",
+        "account": "demo.alex",
+        "target_host": "DEMO-ARCHIVE-04",
+        "privilege": "read shared files",
+        "capabilities": [
+          "read"
+        ],
+        "port": 445,
+        "statement": "Invented read-only archive permission."
+      }
+    ]
+  },
+  "source_text": "date=2026-10-23 time=08:49:08 tz=\"+0530\" eventtime=1792745348000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.1 dstip=198.51.100.1 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:10 tz=\"+0530\" eventtime=1792745350000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.2 dstip=198.51.100.2 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:12 tz=\"+0530\" eventtime=1792745352000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.3 dstip=198.51.100.3 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:14 tz=\"+0530\" eventtime=1792745354000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.4 dstip=198.51.100.4 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:16 tz=\"+0530\" eventtime=1792745356000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.5 dstip=198.51.100.5 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:18 tz=\"+0530\" eventtime=1792745358000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.6 dstip=198.51.100.6 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:20 tz=\"+0530\" eventtime=1792745360000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.7 dstip=198.51.100.7 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:22 tz=\"+0530\" eventtime=1792745362000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.8 dstip=198.51.100.8 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:24 tz=\"+0530\" eventtime=1792745364000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.9 dstip=198.51.100.9 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:26 tz=\"+0530\" eventtime=1792745366000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.10 dstip=198.51.100.10 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:28 tz=\"+0530\" eventtime=1792745368000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.11 dstip=198.51.100.11 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:30 tz=\"+0530\" eventtime=1792745370000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.12 dstip=198.51.100.12 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:32 tz=\"+0530\" eventtime=1792745372000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.13 dstip=198.51.100.13 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:34 tz=\"+0530\" eventtime=1792745374000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.14 dstip=198.51.100.14 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:36 tz=\"+0530\" eventtime=1792745376000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.15 dstip=198.51.100.15 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:38 tz=\"+0530\" eventtime=1792745378000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.16 dstip=198.51.100.16 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:40 tz=\"+0530\" eventtime=1792745380000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.17 dstip=198.51.100.17 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:42 tz=\"+0530\" eventtime=1792745382000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.18 dstip=198.51.100.18 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:44 tz=\"+0530\" eventtime=1792745384000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.19 dstip=198.51.100.19 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:46 tz=\"+0530\" eventtime=1792745386000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.20 dstip=198.51.100.20 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:48 tz=\"+0530\" eventtime=1792745388000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.21 dstip=198.51.100.1 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:50 tz=\"+0530\" eventtime=1792745390000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.22 dstip=198.51.100.2 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:52 tz=\"+0530\" eventtime=1792745392000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.23 dstip=198.51.100.3 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:54 tz=\"+0530\" eventtime=1792745394000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.24 dstip=198.51.100.4 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:56 tz=\"+0530\" eventtime=1792745396000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.25 dstip=198.51.100.5 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:49:58 tz=\"+0530\" eventtime=1792745398000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.26 dstip=198.51.100.6 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:00 tz=\"+0530\" eventtime=1792745400000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.27 dstip=198.51.100.7 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:02 tz=\"+0530\" eventtime=1792745402000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.28 dstip=198.51.100.8 dstport=443 action=\"dropped\" attack=\"Fortinet.Protection.WAF\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:04 tz=\"+0530\" eventtime=1792745404000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.29 dstip=198.51.100.9 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:06 tz=\"+0530\" eventtime=1792745406000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.30 dstip=198.51.100.10 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:08 tz=\"+0530\" eventtime=1792745408000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.31 dstip=198.51.100.11 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:10 tz=\"+0530\" eventtime=1792745410000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.32 dstip=198.51.100.12 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:12 tz=\"+0530\" eventtime=1792745412000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.33 dstip=198.51.100.13 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:14 tz=\"+0530\" eventtime=1792745414000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.34 dstip=198.51.100.14 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:16 tz=\"+0530\" eventtime=1792745416000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.35 dstip=198.51.100.15 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:18 tz=\"+0530\" eventtime=1792745418000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.36 dstip=198.51.100.16 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:20 tz=\"+0530\" eventtime=1792745420000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.37 dstip=198.51.100.17 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:22 tz=\"+0530\" eventtime=1792745422000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.38 dstip=198.51.100.18 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:24 tz=\"+0530\" eventtime=1792745424000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.39 dstip=198.51.100.19 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:26 tz=\"+0530\" eventtime=1792745426000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.40 dstip=198.51.100.20 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:28 tz=\"+0530\" eventtime=1792745428000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.41 dstip=198.51.100.1 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:30 tz=\"+0530\" eventtime=1792745430000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.42 dstip=198.51.100.2 dstport=443 action=\"dropped\" attack=\"Oracle.WebLogic.Server.wls9-async.Deserialization\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:32 tz=\"+0530\" eventtime=1792745432000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"virus\" srcip=192.0.2.43 dstip=198.51.100.3 dstport=443 action=\"blocked\" attack=\"W27/Shellcode.ABC!tr\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:34 tz=\"+0530\" eventtime=1792745434000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"virus\" srcip=192.0.2.44 dstip=198.51.100.4 dstport=443 action=\"blocked\" attack=\"W27/Shellcode.ABC!tr\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:36 tz=\"+0530\" eventtime=1792745436000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"virus\" srcip=192.0.2.45 dstip=198.51.100.5 dstport=443 action=\"blocked\" attack=\"W27/Shellcode.ABC!tr\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:38 tz=\"+0530\" eventtime=1792745438000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"virus\" srcip=192.0.2.46 dstip=198.51.100.6 dstport=443 action=\"blocked\" attack=\"W27/Shellcode.ABC!tr\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:40 tz=\"+0530\" eventtime=1792745440000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"virus\" srcip=192.0.2.47 dstip=198.51.100.7 dstport=443 action=\"blocked\" attack=\"W27/Shellcode.ABC!tr\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:42 tz=\"+0530\" eventtime=1792745442000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"virus\" srcip=192.0.2.48 dstip=198.51.100.8 dstport=443 action=\"blocked\" attack=\"W27/Shellcode.ABC!tr\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:44 tz=\"+0530\" eventtime=1792745444000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"virus\" srcip=192.0.2.49 dstip=198.51.100.9 dstport=443 action=\"blocked\" attack=\"W27/Shellcode.ABC!tr\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:46 tz=\"+0530\" eventtime=1792745446000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"virus\" srcip=192.0.2.50 dstip=198.51.100.10 dstport=443 action=\"blocked\" attack=\"W27/Shellcode.ABC!tr\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:48 tz=\"+0530\" eventtime=1792745448000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"virus\" srcip=192.0.2.51 dstip=198.51.100.11 dstport=443 action=\"blocked\" attack=\"W27/Shellcode.ABC!tr\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:50 tz=\"+0530\" eventtime=1792745450000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"virus\" srcip=192.0.2.52 dstip=198.51.100.12 dstport=443 action=\"blocked\" attack=\"W27/Shellcode.ABC!tr\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:52 tz=\"+0530\" eventtime=1792745452000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.53 dstip=198.51.100.13 dstport=443 action=\"dropped\" attack=\"Apache.Log4j.Remote.Code.Execution\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:54 tz=\"+0530\" eventtime=1792745454000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.54 dstip=198.51.100.14 dstport=443 action=\"dropped\" attack=\"Apache.Log4j.Remote.Code.Execution\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:56 tz=\"+0530\" eventtime=1792745456000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.55 dstip=198.51.100.15 dstport=443 action=\"dropped\" attack=\"Apache.Log4j.Remote.Code.Execution\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:50:58 tz=\"+0530\" eventtime=1792745458000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.56 dstip=198.51.100.16 dstport=443 action=\"dropped\" attack=\"Apache.Log4j.Remote.Code.Execution\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:51:00 tz=\"+0530\" eventtime=1792745460000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.57 dstip=198.51.100.17 dstport=443 action=\"dropped\" attack=\"HTTP.Brute.Force\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:51:02 tz=\"+0530\" eventtime=1792745462000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.58 dstip=198.51.100.18 dstport=443 action=\"dropped\" attack=\"HTTP.Brute.Force\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:51:04 tz=\"+0530\" eventtime=1792745464000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.59 dstip=198.51.100.19 dstport=443 action=\"dropped\" attack=\"MS.Netlogon.ZeroLogon\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:51:06 tz=\"+0530\" eventtime=1792745466000000000 devname=\"DEMO-FW-01\" devid=\"DEMO-FIREWALL-001\" type=\"utm\" subtype=\"ips\" srcip=192.0.2.60 dstip=198.51.100.20 dstport=443 action=\"dropped\" attack=\"Cobalt.Strike.Beacon\" msg=\"Synthetic sensor observation for UI development\"\ndate=2026-10-23 time=08:59:08 tz=\"+0530\" eventtime=1792745948000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"\ndate=2026-10-23 time=08:59:12 tz=\"+0530\" eventtime=1792745952000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"\ndate=2026-10-23 time=08:59:16 tz=\"+0530\" eventtime=1792745956000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"\ndate=2026-10-23 time=08:59:20 tz=\"+0530\" eventtime=1792745960000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"\ndate=2026-10-23 time=08:59:24 tz=\"+0530\" eventtime=1792745964000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"\ndate=2026-10-23 time=08:59:28 tz=\"+0530\" eventtime=1792745968000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"\ndate=2026-10-23 time=08:59:32 tz=\"+0530\" eventtime=1792745972000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"\ndate=2026-10-23 time=08:59:36 tz=\"+0530\" eventtime=1792745976000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"\ndate=2026-10-23 time=08:59:40 tz=\"+0530\" eventtime=1792745980000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"\ndate=2026-10-23 time=08:59:44 tz=\"+0530\" eventtime=1792745984000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"failed\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"\ndate=2026-10-23 time=08:59:48 tz=\"+0530\" eventtime=1792745988000000000 devname=\"DEMO-VPN-01\" devid=\"DEMO-VPN-001\" type=\"event\" subtype=\"vpn\" action=\"ssl-login\" status=\"success\" user=\"demo.alex\" srcip=192.0.2.200 dstip=198.51.100.254 msg=\"Synthetic authentication observation\"\n"
+}

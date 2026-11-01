@@ -1,7 +1,7 @@
 import {createInterface} from 'node:readline';
-import {normalize, newStats} from './vendor/jevline/engine/src/normalize.ts';
-import {resolveProcesses} from './vendor/jevline/engine/src/identity.ts';
-import {buildLinks, pathKey, launchedPaths, PERSISTENCE_KEY} from './vendor/jevline/engine/src/links.ts';
+import {normalize, newStats} from './vendor/normalization/engine/src/normalize.ts';
+import {resolveProcesses} from './vendor/normalization/engine/src/identity.ts';
+import {buildLinks, pathKey, launchedPaths, PERSISTENCE_KEY} from './vendor/normalization/engine/src/links.ts';
 // One bounded request at a time; the Python coordinator persists every result before continuing.
 for await (const line of createInterface({input: process.stdin})) {
   const rows = JSON.parse(line), stats = newStats();
