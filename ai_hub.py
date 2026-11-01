@@ -29,6 +29,8 @@ def credentials(config):
         provider=row.get('provider','groq');model=row.get('model','');key=row.get('key','')
         if provider not in ('groq','openai') or not isinstance(model,str) or not 1<len(model)<=160:raise ValueError('Choose a supported provider and model ID')
         if model.startswith(('gsk_','sk-')) or model==key:raise ValueError('Model field must contain a model ID, never an API key')
+        if provider=='openai':model=model.removeprefix('openai/')
+        if provider=='groq' and model.startswith(('gpt-4','openai/gpt-4')):raise ValueError('Select OpenAI as the provider for GPT-4 models')
         if provider=='groq' and model.startswith('gpt-oss-'):raise ValueError('Groq GPT-OSS model IDs require openai/ prefix')
         if not isinstance(key,str) or not 2<=len(key)<=2048 or any(c.isspace() for c in key):raise ValueError('Invalid API key')
         label=row.get('label',f'Key {index+1}');group=row.get('quota_group','default')
@@ -78,6 +80,10 @@ class Hub:
         row=dict(row) if normalized else credentials({'credentials':[row]})[0]
         for identifier,current in self.entries.items():
             if current['key']==row['key']:
+                changed=any(current[k]!=row[k] for k in ('provider','model'))
+                current.update(row)
+                if changed or not current['enabled']:current.update(enabled=True,verified=False,cooldown=0.)
+                self.groups.setdefault(row['quota_group'],dict(cooldown=0.,inflight=0,remaining_tokens=None))
                 if primary:self.entries.move_to_end(identifier,last=False)
                 return self._entry_status(current)
         if len(self.entries)>=16:raise ValueError('At most 16 credentials may be active')
@@ -174,6 +180,8 @@ class Hub:
                         if ready:await asyncio.sleep(.02);continue
                         if not eligible:raise AIError('configuration','No enabled credential is eligible for this provider/model')
                         wait=min(max(e['cooldown'],self.groups[e['quota_group']]['cooldown']) for e in eligible)-now
+                        if 0<wait<=min(5,duration-(now-started)-.1):
+                            await asyncio.sleep(min(wait,.5));continue
                         if wait>0:raise AIError('quota_deferred','AI capacity is cooling down',retry_at=time.time()+wait)
                         raise last_error or AIError('unavailable','No healthy eligible credential remains')
                     entry=min(idle,key=lambda e:(e['requests'],e['last_used']))
@@ -181,7 +189,13 @@ class Hub:
                     try:
                         async with self.semaphore:
                             ctx['attempts']+=1;entry['requests']+=1;entry['last_used']=time.monotonic()
-                            result=await self._attempt(entry,prompt,schema,role)
+                            # Reserve part of the logical deadline for an eligible backup.
+                            remaining=duration-(time.monotonic()-started)
+                            attempt_timeout=remaining/2 if attempt==0 and len(eligible)>1 else remaining
+                            try:
+                                async with asyncio.timeout(max(.001,attempt_timeout)):
+                                    result=await self._attempt(entry,prompt,schema,role)
+                            except TimeoutError:raise AIError('timeout','Provider attempt timed out; trying eligible backup') from None
                         entry['verified']=True;entry['latency_seconds']=round(time.monotonic()-entry['last_used'],3)
                         result.update(credential_id=entry['id'],credential_label=self._redact(entry['label']),provider=entry['provider'],model=entry['model'],attempts=attempt+1,cache_hit=False)
                         ctx['pending'].append((cache_key,result));self.totals['successful_requests']+=1
