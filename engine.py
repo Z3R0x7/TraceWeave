@@ -953,6 +953,7 @@ def load_configuration(path):
     if not key:raise ValueError(f'Set {provider.upper()}_API_KEY in {path}; AI is required for this engine')
     if any(c.isspace() for c in key):raise ValueError('The API key contains whitespace')
     model=normalized[0]['model'] if pool else setting('AI_MODEL','openai/gpt-oss-120b' if provider=='groq' else '')
+    if provider=='openai':model=model.removeprefix('openai/')
     if not model:raise ValueError('Set AI_MODEL to a model supported by your provider')
     if provider=='groq' and model.startswith('gpt-oss-'):raise ValueError('Groq GPT-OSS model IDs need the openai/ prefix, for example openai/gpt-oss-120b')
     packets=int(setting('AI_MAX_PACKETS','10'))
@@ -1058,7 +1059,7 @@ def run_ai(db,out,client,progress):
         boundary=max(1,int(maximum*(i+1)/(remaining+1)))
         row=db.execute('SELECT v.id,v.evidence_id FROM evidence v WHERE v.id>=? AND NOT EXISTS (SELECT 1 FROM findings f WHERE f.evidence_id=v.id) ORDER BY v.id LIMIT 1',(boundary,)).fetchone()
         if row and row['id'] not in seen:plans.append(('ai_inc_'+row['evidence_id'][:24],row['id']));seen.add(row['id'])
-    stats=dict(enabled=True,provider=client.config['provider'],model=client.config['model'],packets_planned=len(plans),packets_reviewed=0,rejected_packets=0,accepted_proposals=0,request_limit=client.limit,coverage='bounded candidate and unflagged windows, not every record',status='running')
+    stats=dict(enabled=True,provider=client.config['provider'],model=client.config['model'],packets_planned=len(plans),packets_reviewed=0,rejected_packets=0,deferred_packets=0,accepted_proposals=0,request_limit=client.limit,coverage='bounded candidate and unflagged windows, not every record',status='running')
     allowed=catalog()
     with (out/'ai_reviews.jsonl').open('w') as log:
         for number,(iid,seed) in enumerate(plans,1):
@@ -1078,16 +1079,19 @@ def run_ai(db,out,client,progress):
             except ValidationError as exc:
                 stats['rejected_packets']+=1;entry.update(status='rejected',reason='Invalid model JSON/schema',error_code='invalid_schema',fields=[dict(loc=list(e['loc']),type=e['type']) for e in exc.errors(include_input=False,include_context=False)[:5]])
             except Exception as exc:
-                stats['rejected_packets']+=1
                 reason=str(exc)
                 if client.config.get('key'):reason=reason.replace(client.config['key'],'[REDACTED]')
                 code=getattr(exc,'code','semantic_rejected' if 'semantic support' in reason else 'unsupported_quote' if 'quote' in reason or 'span' in reason else 'unsupported_label' if 'technique' in reason else 'content_rejected')
-                entry.update(status='rejected',reason=reason[:300],error_code=code,retry_at=getattr(exc,'retry_at',None))
-            if entry['status']=='rejected' and hasattr(client,'commit'):client.commit(False)
+                deferred=code in ('quota_deferred','budget_deferred','timeout','provider_unavailable','configuration','unavailable')
+                if deferred:stats['deferred_packets']+=len(plans)-number+1
+                else:stats['rejected_packets']+=1
+                entry.update(status='deferred' if deferred else 'rejected',reason=reason[:300],error_code=code,retry_at=getattr(exc,'retry_at',None))
+            if entry['status'] in ('rejected','deferred') and hasattr(client,'commit'):client.commit(False)
             log.write(json.dumps(entry)+'\n');log.flush();db.commit();progress()
             print(f'AI packet {number}/{len(plans)}: {entry["status"]}',file=sys.stderr,flush=True)
+            if entry['status']=='deferred':break
     metrics=client.statistics() if hasattr(client,'statistics') else dict(logical_calls=client.calls,physical_attempts=client.calls)
-    stats.update(**metrics,status='completed_with_rejections' if stats['rejected_packets'] else 'completed',requests=metrics['physical_attempts'],token_usage=client.usage)
+    stats.update(**metrics,status='completed_with_deferred_ai' if stats['deferred_packets'] else 'completed_with_rejections' if stats['rejected_packets'] else 'completed',requests=metrics['physical_attempts'],token_usage=client.usage)
     return stats
 
 def publish_outputs(db,out,rules,progress):
@@ -1141,7 +1145,10 @@ def main():
     args=parser.parse_args();config=load_configuration(Path(args.env))
     with AIClientContext(config) as client:
         print(f'Checking AI connection: {config["provider"]} / {config["model"]}',file=sys.stderr)
-        client.verify()
+        try:client.verify()
+        except ValueError as exc:
+            if getattr(exc,'code',None) not in ('quota_deferred','timeout','provider_unavailable'):raise
+            print('AI capacity temporarily unavailable; continuing log analysis. AI review may be deferred.',file=sys.stderr,flush=True)
         result=analyze(args.input,args.output,corrupt_policy='strict' if args.strict else 'skip',ai_client=client)
         print(json.dumps(dict(status=result['status'],output=result['output_directory'],counts=result['counts'],ai=result['ai']),indent=2))
 
