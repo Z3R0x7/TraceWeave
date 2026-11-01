@@ -1,58 +1,103 @@
-# TraceWeave
+# TraceWeave · Team A42
 
-## Run
+<p align="center">
+  <strong>Evidence-backed attack-path investigation for noisy security telemetry.</strong><br>
+  <sub>Cyberforge final submission · Team A42</sub>
+</p>
 
-Requires macOS/Linux, Python 3.12+, Node 24+ and OpenSSH.
+<p align="center">
+  <a href="https://github.com/Z3R0x7/TraceWeave"><img src="https://img.shields.io/badge/status-final%20submission-58e0c1?style=for-the-badge" alt="Final submission"></a>
+  <img src="https://img.shields.io/badge/python-3.12%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12+"><img src="https://img.shields.io/badge/node-24%2B-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="Node 24+"><img src="https://img.shields.io/badge/AI-evidence--bounded-8b5cf6?style=for-the-badge" alt="Evidence bounded AI">
+</p>
 
-```sh
-test -f .env || cp .env.example .env
-# Add your API key(s) to .env.
+![TraceWeave pipeline](assets/traceweave-pipeline.svg)
+
+## Problem statement
+
+Security teams receive large, noisy logs but need a fast, explainable way to reconstruct suspicious activity, understand possible attack paths, and decide what to investigate next.
+
+**TraceWeave** converts raw telemetry into a navigable investigation view with evidence-linked findings, attack-path graphs, timelines, conditional reachability, and analyst-ready reports.
+
+## What we built
+
+TraceWeave is a local-first investigation workstation. It combines deterministic parsing and detection with bounded AI assistance, while keeping evidence, assumptions, and uncertainty visible.
+
+| Capability | Outcome |
+| --- | --- |
+| Evidence-linked findings | Every candidate connects to supporting source evidence. |
+| Attack-path graph + timeline | Analysts can inspect entities, relationships, ordering, and uncertainty. |
+| Deterministic-first analysis | Rules and correlation work without an AI key. |
+| Guardrailed AI assistance | Bounded packets, consent, validation, retries, and safe rejection. |
+| Local + SSH execution | Run locally or beside large logs on a dedicated server. |
+| Analyst-ready output | Risk-ranked candidates, conditional reach, reports, and run history. |
+
+## Functional requirements included
+
+| Requirement | Included |
+| --- | --- |
+| **FR1 · Ingest** | Local files, backend paths, output folders, chunked uploads, and source confinement. |
+| **FR2 · Normalize + quality** | Streaming parsing, canonical entities, deduplication, counts, progress, cancellation, and partial artifacts. |
+| **FR3 · Detect + explain** | Rule findings, ATT&amp;CK labels, kill-chain interpretations, uncertainty, and evidence references. |
+| **FR4 · AI review** | Shared Groq/OpenAI routing, bounded packets, consent, validation, retries, and safe abstention. |
+| **FR5 · Attack-path view** | Risk-ranked candidates, graph, timeline, relationship inspector, and evidence navigation. |
+| **FR6 · Next reach** | Permission/network-policy intersection with explicit unknowns and conditional results. |
+| **FR7 · Application** | Browser UI, jobs, cancellation, history, recovery, reports, and dedicated-server workflow. |
+
+## Bonus included
+
+| Bonus | Included |
+| --- | --- |
+| **B1 · Heuristic ranking** | Transparent triage factors; score is not compromise probability. |
+| **B2 · Reports** | Cited deterministic reports plus an optional validated AI draft path. |
+| **B3 · Raw-record counts** | Source, parsed, normalized, rejected, duplicate, finding, and quality counts. |
+| **Remote scale path** | SSH fingerprint approval, server setup, remote worker, and local access. |
+| **Shared AI control plane** | One bounded pool for detection, review, drafting, and health checks. |
+
+## Architecture
+
+![TraceWeave architecture](assets/traceweave-architecture.svg)
+
+<sub>GitHub-safe architecture graphic: the full pipeline is rendered as an image instead of relying on Mermaid support in the viewer.</sub>
+
+**Flow:** raw telemetry → streaming engine → quality gates → evidence index → detections → candidate graph/timeline → conditional reach → guarded AI validation → cited report.
+
+The UI distinguishes observed, inferred, and predicted relationships so a plausible path is never presented as a confirmed attack.
+
+## Quick start
+
+Requirements: macOS/Linux, Python 3.12+, Node 24+, and OpenSSH.
+
+```bash
+git clone https://github.com/Z3R0x7/TraceWeave.git
+cd TraceWeave
+cp .env.example .env
+# Add provider credentials only if AI review is wanted.
 sh start.command
 ```
 
-Open **http://127.0.0.1:18505/**. Choose a log file or enter its backend-local path, approve bounded AI review, and click **Analyze and investigate**. Progress, cancellation, history and automatic result opening are built in.
+Open [http://127.0.0.1:18505/](http://127.0.0.1:18505/).
 
-## Add more AI keys
+1. Select log files or enter backend-local paths.
+2. Approve bounded AI review if required.
+3. Click **Analyze and investigate**.
+4. Inspect a candidate through **Attack path → Possible next reach → Report**.
 
-Keep `GROQ_API_KEY` for one key. For a pool, add this single line to `.env`, replacing both placeholders:
+For large inputs, use **Dedicated server (SSH)**. The local private key stays on the client; logs stay on the server; disconnecting the client does not stop an active remote job.
 
-```dotenv
-AI_CREDENTIALS_JSON=[{"label":"Primary","provider":"groq","model":"openai/gpt-oss-120b","quota_group":"my-org","key":"FIRST_KEY"},{"label":"Backup","provider":"groq","model":"openai/gpt-oss-120b","quota_group":"my-org","key":"SECOND_KEY"}]
-```
+## Demo
 
-Click **AI key pool → Reload keys from .env**. All AI functions share routing, retries, cooldowns and deadlines. Keys in the same organization must share a quota group; extra keys do not increase that organization's quota. A different provider/model requires explicit fallback consent.
+The repository includes a clearly labelled synthetic path/reach walkthrough at `website/demo.json`. Use it to demonstrate graph navigation, timeline review, evidence inspection, conditional reachability, and report generation.
 
-## Use a dedicated server
+## Trust boundary
 
-Expand **Dedicated server (SSH)**. Enter host, user, key path and port. Verify and approve the fingerprint. Use **First-time setup in Terminal** once, then **Connect installed server**. Open the remote investigation at **http://127.0.0.1:18605/**.
+- A finding is suspicious activity, not a confirmed attack.
+- Timestamp conflicts do not establish causality.
+- ATT&amp;CK and kill-chain labels are interpretations unless directly observed.
+- A permitted next-reach path is not a live connectivity test.
+- AI receives bounded sanitized evidence previews only after consent.
+- Unsupported AI claims are rejected.
+- The false-alarm target is **under 30%**, pending independent labels.
 
-Automatic setup supports Ubuntu 24.04+ on x86-64/ARM64 with sudo. Logs stay on the server. Disconnecting the local client does not stop remote jobs. Configure server AI keys through its UI or `/etc/traceweave/ai.env`.
+## License and notices
 
-## Workflow
-
-```mermaid
-flowchart TD
-    UI[Website] --> MODE{Local or server}
-    MODE -->|File upload or local path| W[Worker]
-    MODE -->|SSH fingerprint and setup| S[Remote worker]
-    W --> P[Stream, parse, normalize, deduplicate]
-    S --> P
-    P --> D[Rule detection and ATT&CK labels]
-    K[Private env or runtime keys] --> H[Shared AI pool]
-    D --> H
-    H --> V[Bounded discovery, evidence checks and verification]
-    D --> R[Saved results and evidence index]
-    V --> R
-    R -->|Automatic opening and recovery| G[Risk-ranked graph and timeline]
-    G --> N[Conditional next-reach variants, risk and plain-language explanation]
-    G --> T[Cited report and download]
-    N --> T
-    H --> T
-    G --> Q[Independent labels and false-alarm sample gate]
-    W --> J[Progress, cancel, history and reopen]
-    S --> J
-```
-
-Next reach needs real session, permission and network-policy facts. Missing facts stay unknown. A labelled synthetic walkthrough demonstrates branches and multiple hops. Risk scores are review priorities, not proof of compromise.
-
-The false-alarm target is **under 30%**. Upload independent labels to measure it; no accuracy claim is made without them. Full-tier speed and memory still require measurement. Licence notices are included in `NOTICE.md` and the accompanying licence files.
+See [`NOTICE.md`](NOTICE.md) and [`MITRE_LICENSE.txt`](MITRE_LICENSE.txt). Third-party normalization licensing is included under [`vendor/normalization/LICENSE`](vendor/normalization/LICENSE).
