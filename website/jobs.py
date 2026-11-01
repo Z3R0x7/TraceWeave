@@ -159,7 +159,7 @@ def start(identifier,activate,configuration):
      env.update(TRACEWEAVE_AI_USE_HUB='1',TRACEWEAVE_AI_JOB_ID=identifier)
     else:env[config['provider'].upper()+'_API_KEY']=config['key']
     with Path(current['log']).open('xb') as log:
-     process=subprocess.Popen(command,stdout=log,stderr=subprocess.STDOUT,env=env,start_new_session=True)
+     process=subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,env=env,start_new_session=True)
     PROCESSES[identifier]=process;current.update(status='running',pid=process.pid,started_at=now());save(current)
    code=process.wait()
    with LOCK:

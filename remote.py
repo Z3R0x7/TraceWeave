@@ -90,9 +90,10 @@ class Tunnel:
 
     def run(self):
         delay = 1
+        remote_port = int(os.environ.get('TRACEWEAVE_REMOTE_PORT', '18605'))
         while not self.stop.is_set():
             args = [a.replace('StrictHostKeyChecking=ask','StrictHostKeyChecking=yes') for a in ssh(self.config)]
-            args[-1:-1] = ['-N', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3', '-L', f'127.0.0.1:{self.port}:127.0.0.1:18605']
+            args[-1:-1] = ['-N', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3', '-L', f'127.0.0.1:{self.port}:127.0.0.1:{remote_port}']
             self.process = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             started = time.monotonic()
             while self.process.poll() is None and not self.stop.wait(0.5):
@@ -134,9 +135,10 @@ class Proxy(BaseHTTPRequestHandler):
             connection.putrequest(self.command, self.path, skip_host=True, skip_accept_encoding=True)
             for name in ('Content-Type', 'X-Demo-Token'):
                 if self.headers.get(name): connection.putheader(name, self.headers[name])
-            connection.putheader('Host', '127.0.0.1:18605')
+            remote_port = int(os.environ.get('TRACEWEAVE_REMOTE_PORT', '18605'))
+            connection.putheader('Host', f'127.0.0.1:{remote_port}')
             connection.putheader('Authorization', 'Bearer ' + self.server.agent_token)
-            if self.command != 'GET': connection.putheader('Origin', 'http://127.0.0.1:18605')
+            if self.command != 'GET': connection.putheader('Origin', f'http://127.0.0.1:{remote_port}')
             connection.putheader('Content-Length', str(size)); connection.endheaders()
             left = size
             while left:
@@ -167,6 +169,7 @@ def connect(config, local_port, open_browser=True):
     thread = threading.Thread(target=tunnel.run, daemon=True); thread.start()
     server = None
     try:
+        ThreadingHTTPServer.allow_reuse_address = True
         server = ThreadingHTTPServer(('127.0.0.1', local_port), Proxy)
         server.agent_token = token; server.tunnel_port = tunnel_port
         url = f'http://127.0.0.1:{local_port}/'
@@ -233,6 +236,7 @@ class WebConnection:
             if not self.config:raise ValueError('Approve the server fingerprint first')
             if self.process and self.process.poll() is None:return self.status()
             with socket.socket() as probe:
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 try:probe.bind(('127.0.0.1',18605))
                 except OSError:raise ValueError('Port 18605 is already in use; if setup is running in Terminal, open its remote URL') from None
             c=self.config
